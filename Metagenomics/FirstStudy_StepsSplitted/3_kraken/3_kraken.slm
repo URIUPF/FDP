@@ -1,1 +1,77 @@
+#!/bin/bash
+#SBATCH -J kraken.batch
+#SBATCH -e err.kraken.batch
+#SBATCH -o out.kraken.batch
+#SBATCH -p std
+#SBATCH -n 1
+#SBATCH -c 24
+#SBATCH -t 1-00:00
+
+# loading modules and environment
+module load conda/3
+conda activate home-bio-packages
+
+samplesBatched="F6_D21 F6_D49 F112_D21 F112_D49 F123_D21 F123_D49 F129_D21 F129_D49 F259_D21 F259_D49 F334_D21 F334_D49 F338_D21 F338_D49 F351_D21 F351_D49 F358_D21 F358_D49 F508_D21 F508_D49 F509_D21 F509_D49 F516_D21 F516_D49 F554_D21 F554_D49 F629_D21 F629_D49 F753_D21 F753_D49 F842_D21 F842_D49 F861_D21 F861_D49 F889_D21 F889_D49 F2601_D21 F2601_D55 F2617_D21 F2617_D55 F2666_D21 F2666_D55 F2698_D21 F2698_D55 F2714_D21 F2714_D55 F75_D21 F831_D49"
+
+for item in $samplesBatched; do
+  # for assembly
+    echo "doing ${item} VIRUS"
+      # Virus
+	kraken2 \
+  	 --db /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/k2_viral_20240112 \
+  	 /scratch/mblanco/baro/metagenomic/analysis/URI_2_assembly/spadesOutput_${item}/scaffolds.fasta \
+  	 --classified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Virus/out_clas_Seques${item}_V \
+  	 --unclassified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Virus/out_unclas_Seques${item}_V \
+  	 --report /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Virus/${item}.report_V > /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Virus/${item}.V.kraken
+done
+
+for item in $samplesBatched; do
+  # for assembly
+    echo "doing ${item} BACTERIA"
+      # BACTERIA
+	kraken2 \
+  	 --db /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/k2_standard \
+  	 /scratch/mblanco/baro/metagenomic/analysis/URI_2_assembly/spadesOutput_${item}/scaffolds.fasta \
+  	 --classified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/BacteriaArchaeaViral/out_clas_Seques${item}_B \
+  	 --unclassified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/BacteriaArchaeaViral/out_unclas_Seques${item}_B \
+  	 --report /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/BacteriaArchaeaViral/${item}.report_B > /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/BacteriaArchaeaViral/${item}.B.kraken
+done
+
+for item in $samplesBatched; do
+  # for assembly
+    echo "doing ${item} FUNGI"
+      # FUNGI
+	kraken2 \
+  	 --db /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/2FungiKrakenDB\
+  	 /scratch/mblanco/baro/metagenomic/analysis/2_assembly/spadesOutput_${item}/scaffolds.fasta \
+  	 --classified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Fungi/out_clas_Seques${item}_F \
+  	 --unclassified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Fungi/out_unclas_Seques${item}_F \
+  	 --report /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Fungi/${item}.report_F > /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Fungi/${item}.F.kraken
+done
+
+for item in $samplesBatched; do
+  # for assembly
+    echo "doing ${item} ARCHAEA"
+      # ARCHAEA
+	kraken2 \
+  	 --db /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/ArchaeaKrakenDB \
+  	 /scratch/mblanco/baro/metagenomic/analysis/2_assembly/spadesOutput_${item}/scaffolds.fasta \
+  	 --classified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Archaea/out_clas_Seques${item}_A \
+  	 --unclassified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Archaea/out_unclas_Seques${item}_A \
+  	 --report /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Archaea/${item}.report_A > /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Archaea/${item}.A.kraken
+done
+
+for item in $samplesBatched; do
+  # for assembly
+    echo "doing ${item} PROTOZOA"
+      # PROTOZOA
+	kraken2 \
+  	 --db /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/ProtozoaDB \
+  	 /scratch/mblanco/baro/metagenomic/analysis/2_assembly/spadesOutput_${item}/scaffolds.fasta \
+  	 --classified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Protozoa/out_clas_Seques${item}_P \
+  	 --unclassified-out /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Protozoa/out_unclas_Seques${item}_P \
+  	 --report /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Protozoa/${item}.report_P > /scratch/mblanco/baro/metagenomic/analysis/URI_3_kraken/Protozoa/${item}.P.kraken
+done
+
+
 
