@@ -52,25 +52,17 @@ metawrap binning -o INITIAL_BINNING -t 96 -a ASSEMBLY/final_assembly.fasta --met
 # Run metaWRAP's Bin_refinement module
 metawrap bin_refinement -o BIN_REFINEMENT -t 96 -A INITIAL_BINNING/metabat2_bins/ -B INITIAL_BINNING/maxbin2_bins/ -C INITIAL_BINNING/concoct_bins/ -c 50 -x 10
 
-# Step 6: (************ NOT DONE, REQUIRES TO INSTALL NCBI_nt) Visualize the community and the extracted bins with the Blobology module
-# Use the Blobology module to project the entire assembly 
-metawrap blobology -a ASSEMBLY/final_assembly.fasta -t 96 -o BLOBOLOGY --bins BIN_REFINEMENT/binsA CLEAN_READS/F112D21_*.fastq # --bins BIN_REFINEMENT/metawrap_50_10_bins
-
 # Step 7: Find the abundances of the draft genomes (bins) across the samples
 # Run the Quant_bin module
 metawrap quant_bins -b BIN_REFINEMENT/binsA -o QUANT_BINS -a ASSEMBLY/final_assembly.fasta CLEAN_READS/F112D21_*.fastq
 
-# Step 8: Re-assemble the consolidated bin set with the Reassemble_bins module
-# Run the Reassemble_bins module
-metawrap reassemble_bins -o BIN_REASSEMBLY -1 CLEAN_READS/F112D21_1.fastq -2 CLEAN_READS/F112D21_2.fastq -t 96 -m 800 -c 50 -x 10 -b BIN_REFINEMENT/metawrap_50_10_bins
-
 # Step 9: Determine the taxonomy of each bin with the Classify_bins module
 # Run the Classify_bins module
-metawrap classify_bins -b BIN_REASSEMBLY/reassembled_bins -o BIN_CLASSIFICATION -t 48
+metawrap classify_bins -b BIN_REFINEMENT/binsA -o BIN_CLASSIFICATION -t 48
 
 # ************************
 # RUN PROKKA WITH REASSEMBLED BINS
 # Step 10: Functionally annotate bins with the Annotate_bins module
 # Run the Annotate_bins module
-metawrap annotate_bins -o FUNCT_ANNOT -t 96 -b BIN_REASSEMBLY/reassembled_bins/
+metawrap annotate_bins -o FUNCT_ANNOT -t 96 -b BIN_REFINEMENT/binsA
 
