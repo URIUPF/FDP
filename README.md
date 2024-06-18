@@ -3,6 +3,8 @@
 Welcome to the repository for my final degree project in metagenomics. This project aims to analyze microbiome communities using various bioinformatics tools and pipelines. Here you will find scripts and workflows used in the analysis, organized by different aspects of the project.
 
 ## Folders and Contents
+All folders are inside the metagenomics directory.
+
 
 MetaWRAP: Scripts and outputs related to MetaWRAP pipeline for preprocessing and performing quality control of the samples, metagenomic assembly, binning...
 
