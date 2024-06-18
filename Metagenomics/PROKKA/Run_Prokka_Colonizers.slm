@@ -1,1 +1,18 @@
+#!/bin/bash
+#SBATCH -J prcolgpu.batch
+#SBATCH -e err.prcolgpu.batch
+#SBATCH -o out.prcolgpu.batch
+#SBATCH -p gpu
+#SBATCH -n 1
+#SBATCH -t 10-00:00
+
+module load conda
+conda activate prokka
+
+samplesBatched="glaesserella moraxella rothia streptococcus"
+for item in $samplesBatched; do
+    echo "Running Prokka in directory: ${item}"
+    prokka --outdir "prokkagpu/${item}" --prefix "${item}_prokka" "${item}.fasta" --cpus 24
+    echo "Prokka finished for directory: ${item}"
+done
 
