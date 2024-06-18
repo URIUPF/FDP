@@ -1,0 +1,41 @@
+#!/bin/bash
+#SBATCH -J 3bin.batch
+#SBATCH -e logs/err.3bin.batch
+#SBATCH -o logs/out.3bin.batch
+#SBATCH -p std
+#SBATCH -n 1
+#SBATCH -c 24
+#SBATCH -t 5-00:00
+
+module load conda
+conda activate metawrap
+
+
+
+# Consolidate bin sets with the Bin_refinement module
+metawrap bin_refinement -o BIN_REFINEMENT -t 96 -A INITIAL_BINNING/metabat2_bins/ -c 50 -x 10
+
+# Find the abundances of the draft genomes (bins) across the samples
+# Run the Quant_bin module
+metawrap quant_bins -b BIN_REFINEMENT/binsA -o QUANT_BINS -a ASSEMBLY/final_assembly.fasta CLEAN_READS/_*.fastq
+
+# Determine the taxonomy of each bin with the Classify_bins module
+# Run the Classify_bins module
+metawrap classify_bins -b BIN_REASSEMBLY/reassembled_bins -o BIN_CLASSIFICATION -t 48
+
+# Step 10: Functionally annotate bins with the Annotate_bins module
+# Run the Annotate_bins module
+metawrap annotate_bins -o FUNCT_ANNOT -t 96 -b BIN_REASSEMBLY/reassembled_bins/
+
+
+# One per Sample
+#doing="F6D21 F6D49 F112D21 F112D49 F123D21 F123D49 F129D21 F129D49 F259D21 F259D49 F334D21 F334D49 F338D21 F338D49 F351D21 F351D49 F358D21 F358D49 F508D21 F508D49 F509D21 F509D49 F516D21 F516D49 F554D21 F554D49 F629D21 F629D49 F753D21 F753D49 F842D21 F842D49 F861D21 F861D49 F889D21 F889D49 F2601D21 F2601D55 F2617D21 F2617D55 F2666D21 F2666D55 F2698D21 F2698D55 F2714D21 F2714D55 F75D21 F831D49"
+for item in $doing; do
+	# All = all samples (but not concatenated)
+	# metawrap binning -t 24 -o INITIAL_BINNING/All/${item} -a ASSEMBLY/std/${item}/final_assembly.fasta --metabat2 CLEAN_READS/${item}_*.fastq
+    # metawrap bin_refinement -o BIN_REFINEMENT/${item}/ -t 24 -A INITIAL_BINNING/All/${item}/metabat2_bins/
+	# metawrap classify_bins -b INITIAL_BINNING/All/${item}/metabat2_bins/ -o BIN_CLASSIFICATION -t 24 
+	# metaWRAP annotate_bins -o FUNCT_ANNOT -t 24 -b INITIAL_BINNING/All/${item}/metabat2_bins/
+	# metawrap annotate_bins -o FUNCT_ANNOT -t 96 -b BIN_REASSEMBLY/reassembled_bins/
+
+done
