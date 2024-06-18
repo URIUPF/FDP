@@ -1,0 +1,881 @@
+```{r}
+# Load required libraries
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(phyloseq)
+library(vegan) # Alpha and beta diversity
+library(tidyr)
+library(amap) # dendogram
+library(ctc) # convert to newick
+library(dendextend) # colour dend
+library(purrr)
+library(pheatmap)
+library(qiime2R)
+library(gt)
+library(rbiom)
+library(ecodist)
+library(viridis)
+library(hagis)
+library(rstatix)
+library(ggpubr)
+
+#Load data
+data <- read.csv("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/ANALYSIS/DATA/Metagenomics/KRAKEN/VIRUS/DATA.csv") # metadata + kraken_data
+# MAYBE I HAVE TO SET "D55" == "D49"
+
+metadata <- read.csv("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/ANALYSIS/DATA/Metagenomics/KRAKEN/VIRUS/metadata.csv")
+metadata <- unique(metadata)
+kraken_data <- read.csv("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/ANALYSIS/DATA/Metagenomics/KRAKEN/VIRUS/report_data.csv")
+
+data$Day[data$Day == "55"] <- "49"
+
+data <- data[data$Taxon_name != "unclassified", ]
+data <- data[data$Taxon_name != "root", ]
+virus <- data[data$Taxon_name == "Viruses", ] # Dataframe only containing each sample % of Viruses 
+virus <- unique(virus)
+virus <- na.omit(virus)
+mvirus <- mean(virus$Percent)
+mvirus
+
+data <- data[data$Taxon_name != "Viruses", ]
+data <- unique(data)
+
+# caudo <- data[data$Taxon_name == "Caudoviricetes", ]
+# caudo <- unique(caudo)
+# mean(caudo$Percent)
+```
+
+```{r}
+# mvirus <- 0.44125
+# mbacteria <- 26.05792
+# mfungi <- 0.153617
+# mprotozoa <- 0.155625
+# marchaea <- 0.4014894
+
+categories <- c("Virus", "Bacteria", "Fungi", "Protozoa", "Archaea")
+mean_values <- c(0.44125, 26.05792, 0.153617, 0.155625, 0.4014894)
+# unclassified <- 72.7901
+
+# Create a data frame with two columns
+means <- data.frame(Category = categories, Mean_Value = mean_values)
+
+# ggplot(means, aes(x = categories, y = mean_values, fill = categories)) +
+#   geom_bar(stat = "identity") + 
+#   theme_classic() +
+#   theme(legend.position = "none") + 
+#   # coord_polar(start = 0) +
+#   # ylim(0, 26.05792)
+```
+
+```{r}
+mean_percent_21 <- mean(virus$Percent[virus$Day == 21], na.rm = TRUE)
+mean_percent_21
+mean_percent_49 <- mean(virus$Percent[virus$Day == 49], na.rm = TRUE)
+mean_percent_49
+mean_all <- mean(virus$Percent)
+mean_all
+ggplot(virus, aes(x = Sample, y = Percent, fill = Day)) +
+  geom_bar(stat = 'identity') +  # 'stack' for stacked bars
+  geom_hline(aes(yintercept = mean_percent_21, color = "Mean D21"), linetype = "dashed") +
+  geom_hline(aes(yintercept = mean_percent_49, color = "Mean D49"), linetype = "dashed") +
+  labs(x = 'Sample', y = '% of Viruses') +
+  theme_classic() + 
+  scale_fill_viridis_d() + 
+  scale_color_manual(name = "Mean", values = viridis(2, option = "B", begin = 0.2, end = 0.9), labels = c("D21", "D49")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 7)) + # legend.position = 'top'  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = 'top') +
+  facet_grid(col = vars(Group), scales = 'free_x') 
+```
+
+
+# Alpha diversity
+BETWEEN SAMPLES
+```{r}
+# IN ALL THE DATA -- BETWEEN SAMPLES
+data_alpha <- data[, c(1, 11, 15)]
+
+# Aggregate the values (summing counts for duplicate combinations --> I lose some samples due to this)
+aggregated_data <- aggregate(Count ~ Sample + Taxon_name, data = data_alpha, sum)
+
+# Pivot the data to wide format
+wide_data <- spread(aggregated_data, Taxon_name, Count)
+
+# Remove row names and set 'Sample' as a separate column
+# wide_data <- data.frame(Sample = rownames(wide_data), wide_data)
+
+# Replace NAs with 0
+wide_data[is.na(wide_data)] <- 0
+
+# Extract 'Sample' as row names
+rownames(wide_data) <- wide_data$Sample
+wide_data <- wide_data[, -1]
+# wide_data$Sample.1 <- NULL
+
+# Calculate alpha diversity (Shannon index) on WIDE DATA
+alpha_div_w <- diversity(wide_data, index = "shannon")
+summary(alpha_div_w)
+alpha_div_w <- as.data.frame(alpha_div_w)
+alpha_div_w$Samples <- rownames(alpha_div_w)
+
+# data_alphadiv_w <- cbind(alpha_div_w, wide_data) # combine Alpha diversity indices 
+kruskal1 <- kruskal.test(alpha_div_w$alpha_div_w ~ alpha_div_w$Samples) # Kruskal-Wallis
+print(kruskal1) # the p-value is 0.4726, which is greater than 0.05 == is no significant difference in Shannon diversity between SAMPLES, based on the Kruskal-Wallis Test
+```
+
+BETWEEN GROUPS
+```{r}
+process_group <- function(group_data) {
+  # Aggregate the values
+  aggregated_group <- group_data %>%
+    group_by(Sample, Taxon_name) %>%
+    summarise(Count = sum(Count)) %>%
+    ungroup()
+
+  # Pivot the data to wide format
+  wide_group <- spread(aggregated_group, Taxon_name, Count, fill = 0)
+
+  # Calculate alpha diversity (Shannon index)
+  alpha_group <- diversity(wide_group[, -1], index = "shannon")
+
+  # Combine alpha diversity indices with wide data
+  data_alpha_group <- cbind(alpha_group, wide_group)
+
+  return(data_alpha_group)
+}
+
+# Using purrr to process each group
+alpha_div_results <- data %>%
+  group_split(Group) %>%
+  map(process_group)
+
+# Combine the results into a single dataset
+alpha_div_dataset <- bind_rows(alpha_div_results, .id = "Group")
+alpha_div_dataset[is.na(alpha_div_dataset)] <- 0
+# group 1 = NTS_IP, group 2 = NTS_NTP, group 3 = NTS_TP, group 4 = TS_IP, group 5 = TS_NTP # alpha_div_dataset$Group[alpha_div_dataset$Group == "1"] <- "NTS_IP"    # SO SLOW
+
+alpha_div_dataset <- alpha_div_dataset %>%
+  rename(alpha_div = alpha_group) %>%
+  mutate(Group = case_when(
+    Group == "1" ~ "NTS_IP",
+    Group == "2" ~ "NTS_NTP",
+    Group == "3" ~ "NTS_TP",
+    Group == "4" ~ "TS_IP",
+    Group == "5" ~ "TS_NTP",
+    TRUE ~ as.character(Group) # Keep other values as is
+  ))
+
+# Define the custom order
+custom_order <- c("NTS_NTP", "TS_NTP", "NTS_TP", "NTS_IP", "TS_IP")
+
+# Convert the 'Group' variable to a factor with the custom order, just to change the order in the boxplot
+alpha_div_dataset$Group <- factor(alpha_div_dataset$Group, levels = custom_order)
+
+# BOXPLOT
+V1 <- ggplot(alpha_div_dataset, aes(x = Group, y = alpha_div, fill = Group)) +
+  geom_boxplot() +
+  labs(# title = "Alpha diversity (Shannon index) at different groups",
+       x = "Groups", y = "Shannon Diversity") +
+  scale_fill_manual(name = "Group", values = c("green", "orange", "red", "blue", "purple")) + # ADJUST MANUALLY
+  theme_classic() + 
+  theme(legend.position = "none")
+  # theme(legend.title = element_text(face = "bold"))
+V1
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/Virus/Virus_BoxplotAlpha.svg", V1, height = 6, width = 10)
+ggplot(alpha_div_dataset, aes(y = alpha_div, fill = Group)) +
+  geom_boxplot() +  # 'stack' for stacked bars
+  labs(x = 'Groups', y = 'Shannon Diversity') +
+  theme_classic() + 
+  scale_fill_viridis_d() + 
+  # scale_fill_manual(name = "Group", values = c("green", "orange", "red", "blue", "purple")) + # values = color_vector,
+  theme(axis.text.x = element_blank(), legend.position = 'none', axis.ticks.x = element_blank()) +
+  facet_grid(col = vars(Group), scales = 'free_x')
+
+kruskal2 <- kruskal.test(alpha_div_dataset$alpha_div ~ alpha_div_dataset$Group)
+print(kruskal2) # the p-value is 0.2661, which is greater than 0.05 == is no significant difference in Shannon diversity between groups based on the Kruskal-Wallis test. 
+
+# Perform pairwise Wilcoxon tests with adjustment for multiple comparisons
+pairwise_results <- alpha_div_dataset %>%
+  pairwise_wilcox_test(alpha_div ~ Group, p.adjust.method = "bonferroni")
+
+# Print the pairwise test results
+print(pairwise_results)
+```
+
+
+
+
+# Beta diversity
+Between samples
+```{r}
+# Beta diversity analysis
+dist_matrix <- vegdist(wide_data, method = "bray")
+print(dist_matrix)
+# write.table(dist_matrix, file = "bray_curtis_matrix.txt", sep = "\t", quote = FALSE)
+
+# PCoA -- Multidimensional scaling (MDS) is a means of visualizing the level of similarity of individual cases of a dataset.
+pcoa_result <- cmdscale(dist_matrix)  #  is similar in spirit to PCA but it takes a dissimilarity as input! A dissimilarity matrix shows the distance between every possible pair of objects.
+
+# color by sample
+pcoa_result <- as.data.frame(pcoa_result)
+pcoa_result$Sample <- rownames(pcoa_result)
+data_pcoa <- metadata[, c(1,2,6)]
+pcoa <- merge(pcoa_result, data_pcoa, by = c("Sample"), all.x = TRUE)
+pcoa$Day <- factor(pcoa$Day) ###########################################################
+pcoa$Day[pcoa$Day == "55"] <- "49"
+
+ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+  geom_point(aes(col = Day, shape = Group)) + 
+  labs(title = "PCoA Plot - Days", x = "PC1", y = "PC2", color = "Extraction Day") +
+  scale_color_manual(name = "Day", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+  theme_classic() 
+  # + stat_ellipse(aes(col = Day))
+
+ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+  geom_point(aes(col = Group, shape = Day)) + 
+  labs(title = "PCoA Plot - Days", x = "PC1", y = "PC2", color = "Extraction Day") +
+  # scale_color_manual(name = "Group", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+  theme_classic() +
+  stat_ellipse(aes(col = Group))
+```
+```{r}
+pcoa_day21 <- pcoa %>%
+  filter(Day %in% "21")
+p1 <- ggplot(data = pcoa_day21, aes(x = pcoa_day21[, 2], y = pcoa_day21[, 3], col = Group)) +
+  geom_point(aes(col = Group)) + 
+  labs(title = "PCoA - D21", x = "PC1", y = "PC2", color = "Group") +
+  scale_color_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+  scale_fill_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+  theme_classic() + 
+  stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1) + # Instead of 
+  theme(legend.position = "none") # Remove legend from second plot
+
+
+p1
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/Virus/Virus_PCoA_D21.png", p1)
+
+pcoa_day49 <- pcoa %>%
+  filter(Day %in% "49")
+p2 <- ggplot(data = pcoa_day49, aes(x = pcoa_day49[, 2], y = pcoa_day49[, 3], col = Group)) +
+  geom_point(aes(col = Group)) + 
+  labs(title = "PCoA - D49", x = "PC1", y = "PC2", color = "Group") +
+  scale_color_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+  scale_fill_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+  theme_classic() + 
+  stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1) + # if I remove the fill from aes(), disappear from the legend --> I want this bit filling by colour to
+    theme(legend.position = c(0.9, 0.23), legend.title = element_text(face = "bold")) # Remove legend from second plot
+p2
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/Virus/Virus_PCoA_D49.png", p2)
+```
+
+
+```{r}
+# # Extract legend from one of the plots
+# legend <- get_legend(
+#   ggplot(data = pcoa_day49, aes(x = pcoa_day49[, 2], y = pcoa_day49[, 3], col = Group)) +
+#     geom_point(aes(col = Group)) + 
+#     labs(title = "PCoA - D49", x = "PC1", y = "PC2", color = "Group") +
+#     scale_color_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + 
+#     scale_fill_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + 
+#     theme_classic() + 
+#     stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1)
+# )
+# 
+# # Convert legend to a plot and save it
+# legend_plot <- as_ggplot(legend)
+# legend_plot
+# ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/Virus/Virus_PCoA_Legend.png", legend_plot)
+
+```
+
+```{r}
+group_order <- c("NTS_IP", "NTS_NTP", "NTS_TP", "TS_IP", "TS_NTP")
+ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+  geom_point(aes(col = Day, shape = Group)) + 
+  labs(title = "PCoA Plot - Color DAYS, shape GROUPS", x = "PC1", y = "PC2", color = "Extraction Day") +
+  scale_color_manual(name = "Day", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+  theme_classic() 
+
+ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+  geom_point(aes(col = Group, shape = Day)) + 
+  labs(title = "PCoA Plot - Groups color, days shape", x = "PC1", y = "PC2") +
+  # scale_color_manual(name = "Group", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+  theme_classic() +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+  stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1)
+
+pcoa_day21$Group <- factor(pcoa_day21$Group, levels = group_order)
+ggplot(data = pcoa_day21, aes(x = pcoa_day21[, 2], y = pcoa_day21[, 3], col = Group)) +
+  geom_point(aes(col = Group)) + 
+  labs(title = "PCoA Plot - Day 21 - Group Colors", x = "PC1", y = "PC2", color = "Group") +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() + 
+  theme_classic() + 
+  stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1) 
+
+pcoa_day49$Group <- factor(pcoa_day49$Group, levels = group_order)
+ggplot(data = pcoa_day49, aes(x = pcoa_day49[, 2], y = pcoa_day49[, 3], col = Group)) +
+  geom_point(aes(col = Group)) + 
+  labs(title = "PCoA Plot - Day 49", x = "PC1", y = "PC2", color = "Group") +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() + 
+  theme_classic() + 
+  stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1) 
+```
+
+PERMANOVA
+```{r}
+data_perm <- data[, c(1, 4)] # Group and sample
+# for wide_data
+perm_wide_data <- wide_data
+perm_wide_data$Sample <- rownames(wide_data)
+perm_wide_data <- merge(perm_wide_data, data_perm, by = c("Sample")) # merge to have also the group 
+# perm_wide_data <- cbind(perm_wide_data, data_perm, by = c("Sample"), all.x = T) # merge to have also the group
+perm_wide_data <- unique(perm_wide_data)
+
+# Option 1
+rownames(perm_wide_data) <- perm_wide_data$Sample # samples
+perm_wide_data <- perm_wide_data[, -1]
+perm_wide_data$Group <- as.numeric(factor(perm_wide_data$Group))
+
+permanova_All <- adonis2(perm_wide_data ~ Group, data = perm_wide_data, method = "bray")
+permanova_All # NO statistically significant similarities between groups or STATISTICALLY SIGNIFICANT DIFFERENCES BETWEEN GROUPS
+
+data_perm <- data[, c(1, 6)] # Sample and Day
+# for wide_data
+perm_wide_data <- wide_data
+perm_wide_data$Sample <- rownames(wide_data)
+perm_wide_data <- merge(perm_wide_data, data_perm, by = c("Sample")) # merge to have also the group 
+# perm_wide_data <- cbind(perm_wide_data, data_perm, by = c("Sample"), all.x = T) # merge to have also the group
+perm_wide_data <- unique(perm_wide_data)
+
+# Option 1
+rownames(perm_wide_data) <- perm_wide_data$Sample # samples
+perm_wide_data <- perm_wide_data[, -1]
+perm_wide_data$Day <- as.numeric(factor(perm_wide_data$Day))
+
+permanova_All <- adonis2(perm_wide_data ~ Day, data = perm_wide_data, method = "bray")
+permanova_All # NO statistically significant similarities between groups OR STATISTICALLY SIGNIFICANT DIFFERENCES BETWEEN DAYS
+
+# Option 2
+perm_result <- adonis2(dist_matrix ~ Group, data = metadata, permutations = 999)
+perm_result
+# This performs the PERMANOVA test. Here, Group is the factor you want to test against (make sure Group is the correct column name in your metadata). The permutations = 999 argument specifies the number of permutations to use for the test.
+```
+
+```{r}
+# DAY 21
+# OPTION 1
+data_perm <- data[, c(1, 4, 6)] # Group and sample
+perm_wide_data <- wide_data
+perm_wide_data$Sample <- rownames(wide_data)
+perm_wide_data <- merge(perm_wide_data, data_perm, by = c("Sample")) # merge to have also the group
+perm_wide_data <- unique(perm_wide_data)
+perm_wide_data_21 <- perm_wide_data[perm_wide_data$Day == "21", ]
+rownames(perm_wide_data_21) <- perm_wide_data_21$Sample # samples
+perm_wide_data_21 <- perm_wide_data_21[, -1]
+perm_wide_data_21 <- perm_wide_data_21[, -which(names(perm_wide_data_21) == "Day")]
+perm_wide_data_21$Group <- as.numeric(factor(perm_wide_data_21$Group))
+
+permanova_21 <- adonis2(perm_wide_data_21 ~ Group, data = perm_wide_data_21, method = "bray")
+permanova_21 # LOWER THAN 0.05 -_> statistically different beta diversity at DAY 21
+
+# OPTION 2
+abundance_data_21 <- perm_wide_data_21[, !(names(perm_wide_data_21) %in% c("Sample", "Group", "PigletID", "SowID", "Sampling_date", "Day", "Sow_treatment", "Piglet_treatment", "Antibiotic"))]
+group_labels_21 <- perm_wide_data_21$Group
+distance_matrix_21 <- vegdist(abundance_data_21, method = "bray")
+permanova_results_21 <- adonis(distance_matrix_21 ~ group_labels_21, data = perm_wide_data_21, permutations = 999)
+print(permanova_results_21)
+
+# pcoa_result <- cmdscale(distance_matrix_21)
+# 
+# # color by sample
+# pcoa_result <- as.data.frame(pcoa_result)
+# pcoa_result$Sample <- rownames(pcoa_result)
+# data_pcoa <- metadata[, c(1,2,6)]
+# pcoa <- merge(pcoa_result, data_pcoa, by = c("Sample"), all.x = TRUE)
+# pcoa$Day <- factor(pcoa$Day) ###########################################################
+# pcoa$Day[pcoa$Day == "55"] <- "49"
+# 
+# ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+#   geom_point(aes(col = Group, shape = Day)) + 
+#   labs(title = "PCoA Plot - Days", x = "PC1", y = "PC2", color = "Extraction Day") +
+#   # scale_color_manual(name = "Group", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+#   theme_classic() +
+#   stat_ellipse(aes(col = Group))
+# 
+# # Create a data frame for plotting
+# pcoa_df <- data.frame(pcoa_results$vectors[, 1:2])
+# pcoa_df$Group <- group_labels_21
+# 
+# # Plot the PCoA
+# ggplot(pcoa_df, aes(x = Axis.1, y = Axis.2, color = Group)) +
+#     geom_point(size = 3) +
+#     labs(title = "PCoA Plot (Bray-Curtis Distance)", x = "PCoA1", y = "PCoA2") +
+#     theme_minimal()
+# 
+# # Perform PCoA
+# pcoa_result_21 <- cmdscale(distance_matrix_21)
+# pcoa_result_21 <- as.data.frame(pcoa_result_21)
+# pcoa_result_21$Sample <- rownames(pcoa_result_21)
+# 
+# # Merge PCoA results with metadata
+# data_pcoa <- metadata[, c("Sample", "Group", "Day")]
+# pcoa_21 <- merge(pcoa_result_21, data_pcoa, by = "Sample", all.x = TRUE)
+# 
+# # Plot the PCoA
+# ggplot(data = pcoa_21, aes(x = V1, y = V2)) +
+#   geom_point(aes(col = Group, shape = Group)) +
+#   labs(title = "PCoA Plot - Day 21", x = "PC1", y = "PC2", color = "Group") +
+#   theme_classic() +
+#   stat_ellipse(aes(col = Group))
+
+```
+
+```{r}
+# DAY 49
+data_perm <- data[, c(1, 4, 6)] # Group and sample
+perm_wide_data <- wide_data
+perm_wide_data$Sample <- rownames(wide_data)
+perm_wide_data <- merge(perm_wide_data, data_perm, by = c("Sample")) # merge to have also the group
+perm_wide_data <- unique(perm_wide_data)
+perm_wide_data_49 <- perm_wide_data[perm_wide_data$Day == "49", ]
+rownames(perm_wide_data_49) <- perm_wide_data_49$Sample # samples
+perm_wide_data_49 <- perm_wide_data_49[, -1]
+perm_wide_data_49 <- perm_wide_data_49[, -which(names(perm_wide_data_49) == "Day")]
+perm_wide_data_49$Group <- as.numeric(factor(perm_wide_data_49$Group))
+
+permanova_49 <- adonis2(perm_wide_data_49 ~ Group, data = perm_wide_data_49, method = "bray")
+permanova_49 # p HIGHER 0.05 --> NO statistically significant DIFFERENCES between groups at day 49
+
+# Option 2
+# Filter for day 49
+perm_wide_data_49 <- perm_wide_data[perm_wide_data$Day == "49", ]
+dist_matrix_49 <- vegdist(perm_wide_data_49[, !(names(perm_wide_data_49) %in% c("Sample", "Group", "Day"))], method = "bray")
+group_labels_49 <- perm_wide_data_49$Group
+# PERMANOVA Test for day 49
+perm_result_49 <- adonis2(dist_matrix_49 ~ Group, data = perm_wide_data_49, permutations = 999)
+perm_result_49
+
+permanova_results_49 <- adonis(dist_matrix_49 ~ group_labels_49, data = perm_wide_data_49, permutations = 999)
+permanova_results_49
+```
+
+
+
+# Hierarchical clustering
+Between samples
+```{r}
+# # Perform hierarchical clustering
+hc <- hclust(dist_matrix)
+dhc <- as.dendrogram(hc)
+# hc2Newick(hc, flat=TRUE)
+
+# Plot
+dhc <- dhc %>%
+  set("labels_cex", 0.7) %>% # size of the letters     
+  set("labels_col", c(1,2,3)) %>%  # change color of the labels by cluster
+  color_branches(k = 3) %>% #color branches
+  set("branches_lwd", 2) %>% # grosor branches
+  color_labels(dhc, k = 3) # colour the labels k = number of colors
+plot(dhc,  main = "Hierarchical Clustering Dendrogram", xlab = "Samples", ylab = "Distance")
+
+```
+
+
+# Heatmaps
+# for Samples
+```{r}
+# Now, to make a heatmap we ought to first transform the raw counts of reads to proportions within a sample
+# prop_wide_data <- wide_data/rowSums(wide_data) # Normalize the dataset
+
+# colorRampPalette is in the RColorBrewer package. This creates a colour palette that shades from light yellow to red in RGB space with 100 unique colours
+scaleyellowred <- colorRampPalette(c("lightyellow", "red"), space = "rgb")(100)
+# heatmap(as.matrix(prop_wide_data), Rowv = NA, Colv = NA, col = scaleyellowred)
+
+# determine the maximum relative abundance for each column
+maxab <- apply(prop_wide_data, 2, max)
+
+# remove the genera with less than 0.0001% as their maximum relative abundance
+threshold <- 0.09
+
+prop_wide_data_filtered <- prop_wide_data[, maxab >= threshold]
+# heatmap(as.matrix(prop_wide_data_filtered), Rowv = NA, Colv = NA, col = scaleyellowred, margins = c(10, 2))
+
+# calculate the Bray-Curtis dissimilarity matrix on the full dataset:
+data.dist <- vegdist(wide_data, method = "bray")
+
+# Do average linkage hierarchical clustering. Other options are 'complete' or 'single'.
+row.clus <- hclust(data.dist) # method aver
+row.clus <- as.dendrogram(row.clus)
+row.clus <- row.clus %>%
+  set("labels_cex", 0.7) %>% # size of the letters     
+  set("labels_col", c(1,2,3)) %>%  # change color of the labels by cluster
+  color_branches(k = 3) %>% #color branches
+  set("branches_lwd", 2) %>% # grosor branches
+  color_labels(row.clus, k = 3) # colour the labels k = number of colors
+
+
+# add a column dendrogram to cluster the genera that occur more often together.
+data.dist.g <- vegdist(t(prop_wide_data_filtered), method = "bray")
+
+col.clus <- hclust(data.dist.g)
+col.clus <- as.dendrogram(col.clus)
+col.clus <- col.clus %>%
+  set("labels_cex", 0.7) %>% # size of the letters
+  set("labels_col", c(1,2,3,4,5)) %>%  # change color of the labels by cluster
+  color_branches(k = 3) %>% #color branches
+  set("branches_lwd", 2) %>% # grosor branches
+  color_labels(col.clus, k = 3) # colour the labels k = number of colors
+
+# make the heatmap 
+pheatmap(as.matrix(prop_wide_data_filtered), Rowv = as.dendrogram(row.clus), Colv = as.dendrogram(col.clus), col = scaleyellowred, margins = c(10, 3))
+newnames <- lapply(
+  colnames(prop_wide_data_filtered),
+  function(x) bquote(italic(.(x))))
+
+pheatmap(as.matrix(prop_wide_data_filtered), col = scaleyellowred, margins = c(10, 3), labels_col = as.expression(newnames), show_rownames = F, main = "Heatmap - Samples", angle_col = 45)
+```
+
+```{r}
+
+data_days <- data[, c(6, 11, 13, 15)]
+# I want to sum all Viruses that belong to the same day
+# Aggregate the values (summing counts for duplicate combinations --> I lose some samples due to this)
+rank_to_filter <- "C"
+data_days <- data_days[data_days$Rank == rank_to_filter, ]
+aggregated_data_days <- aggregate(Count ~ Day + Taxon_name, data = data_days, sum)
+
+# Pivot the data to wide format
+wide_data_days <- spread(aggregated_data_days, Taxon_name, Count)
+
+# # Remove row names and set 'Day' as a separate column
+# wide_data_days <- data.frame(Day = rownames(wide_data_days), wide_data_days)
+
+# Replace NAs with 0
+wide_data_days[is.na(wide_data_days)] <- 0
+
+# Extract 'Day' as row names
+rownames(wide_data_days) <- wide_data_days$Day
+wide_data_days <- wide_data_days[, -1]
+# wide_data_days$Day.1 <- NULL
+
+# Now, to make a heatmap we ought to first transform the raw counts of reads to proportions within a sample
+prop_wide_data_days <- wide_data_days/rowSums(wide_data_days) # Normalize the dataset
+
+# colorRampPalette is in the RColorBrewer package. This creates a colour palette that shades from light yellow to red in RGB space with 100 unique colours
+scaleyellowred <- colorRampPalette(c("lightyellow", "red"), space = "rgb")(100)
+# heatmap(as.matrix(prop_wide_data_days), Rowv = NA, Colv = NA, col = scaleyellowred)
+
+# determine the maximum relative abundance for each column
+maxab <- apply(prop_wide_data_days, 2, max)
+
+# remove the genera with less than 0.0001% as their maximum relative abundance
+threshold <- 0.01
+
+prop_wide_data_days_filtered <- prop_wide_data_days[, maxab >= threshold]
+# heatmap(as.matrix(prop_wide_data_days_filtered), Rowv = NA, Colv = NA, col = scaleyellowred, margins = c(10, 2))
+
+newnames <- lapply(
+  colnames(prop_wide_data_days_filtered),
+  function(x) bquote(italic(.(x))))
+
+ph1 <- pheatmap(as.matrix(prop_wide_data_days_filtered), col = scaleyellowred, margins = c(10, 3), labels_col = as.expression(newnames), angle_col = 45)
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/Virus/Heatmap_Virus_Day.png", ph1, width = 10, height = 6)
+
+```
+
+
+# for day
+```{r}
+data_days <- data[, c(6, 11, 13, 15)]
+rank_to_filter <- "C"
+data_days <- data_days[data_days$Rank == rank_to_filter, ]
+
+# Sum all Viruses that belong to the same day
+# Aggregate the values (summing counts for duplicate combinations --> I lose some samples due to this)
+aggregated_data_days <- aggregate(Count ~ Day + Taxon_name, data = data_days, sum)
+
+# Pivot the data to wide format
+wide_data_days <- spread(aggregated_data_days, Taxon_name, Count)
+
+# Remove row names and set 'Day' as a separate column
+# wide_data_days <- data.frame(Day = rownames(wide_data_days), wide_data_days)
+
+# Replace NAs with 0
+wide_data_days[is.na(wide_data_days)] <- 0
+
+# Extract 'Day' as row names
+rownames(wide_data_days) <- wide_data_days$Day
+wide_data_days <- wide_data_days[, -1]
+# wide_data_days$Day.1 <- NULL
+
+# Now, to make a heatmap we ought to first transform the raw counts of reads to proportions within a sample
+# wide_data_days <- wide_data_days/rowSums(wide_data_days) # NOT NECESSARY
+
+# colorRampPalette is in the RColorBrewer package. This creates a colour palette that shades from light yellow to red in RGB space with 100 unique colours
+scaleyellowred <- colorRampPalette(c("lightyellow", "red"), space = "rgb")(100)
+# heatmap(as.matrix(prop_wide_data_days), Rowv = NA, Colv = NA, col = scaleyellowred)
+
+# determine the maximum relative abundance for each column
+maxab <- apply(wide_data_days, 2, max)
+
+# remove the genera with less than 0.0001% as their maximum relative abundance
+threshold <- 0.05
+
+wide_data_days_filtered <- wide_data_days[, maxab >= threshold]
+# heatmap(as.matrix(prop_wide_data_days_filtered), Rowv = NA, Colv = NA, col = scaleyellowred, margins = c(10, 2))
+
+newnames <- lapply(
+  colnames(wide_data_days_filtered),
+  function(x) bquote(italic(.(x))))
+
+# pheatmap(as.matrix(wide_data_days_filtered), col = scaleyellowred, margins = c(10, 3), labels_col = as.expression(newnames), main = "Heatmap - Day", angle_col = 45)
+
+# Plot the heatmap using the filtered data
+pheatmap(as.matrix(wide_data_days_filtered), col = scaleyellowred, margins = c(10, 3), 
+         labels_col = as.expression(newnames), main = paste("Heatmap - Rank:", rank_to_filter), 
+         angle_col = 45)
+
+
+#### BASED ON PERCENT
+data_days <- data[, c(6, 10, 13, 15)] # NOW PERCENT. CHANGE TO COLUMN 11 TO USE COUNTS
+rank_to_filter <- "C"
+data_days <- data_days[data_days$Rank == rank_to_filter, ]
+
+# Sum all Viruses that belong to the same day
+# Aggregate the values
+aggregated_data_days <- aggregate(Percent ~ Day + Taxon_name, data = data_days, sum)
+
+# Pivot the data to wide format
+wide_data_days <- spread(aggregated_data_days, Taxon_name, Percent)
+
+# Replace NAs with 0
+wide_data_days[is.na(wide_data_days)] <- 0
+
+# Extract 'Day' as row names
+rownames(wide_data_days) <- wide_data_days$Day
+wide_data_days <- wide_data_days[, -1]
+# wide_data_days$Day.1 <- NULL
+
+# Now, to make a heatmap we ought to first transform the raw counts of reads to proportions within a sample
+# wide_data_days <- wide_data_days/rowSums(wide_data_days) # NOT NECESSARY
+
+# colorRampPalette is in the RColorBrewer package. This creates a colour palette that shades from light yellow to red in RGB space with 100 unique colours
+scaleyellowred <- colorRampPalette(c("lightyellow", "red"), space = "rgb")(100)
+# heatmap(as.matrix(prop_wide_data_days), Rowv = NA, Colv = NA, col = scaleyellowred)
+
+# determine the maximum relative abundance for each column
+maxab <- apply(wide_data_days, 2, max)
+
+# remove the genera with less than 0.0001% as their maximum relative abundance
+threshold <- 0.1
+wide_data_days_filtered <- wide_data_days[, maxab >= threshold]
+
+newnames <- lapply(
+  colnames(wide_data_days_filtered),
+  function(x) bquote(italic(.(x))))
+
+# pheatmap(as.matrix(wide_data_days_filtered), col = scaleyellowred, margins = c(10, 3), labels_col = as.expression(newnames), main = "Heatmap - Day", angle_col = 45)
+
+# Plot the heatmap using the filtered data
+pheatmap(as.matrix(wide_data_days_filtered), col = scaleyellowred, margins = c(10, 3), 
+         labels_col = as.expression(newnames), main = paste("Heatmap - Rank:", rank_to_filter), 
+         angle_col = 45)
+```
+
+
+# Tests
+Use Percent instead of count in wide data and perform bray curtis
+```{r}
+# IN ALL THE DATA -- BETWEEN SAMPLES
+data_alpha <- data[, c(1, 10, 15)]
+
+# Aggregate the values (summing counts for duplicate combinations --> I lose some samples due to this)
+aggregated_data <- aggregate(Percent ~ Sample + Taxon_name, data = data_alpha, sum)
+
+# Pivot the data to wide format
+wide_data <- spread(aggregated_data, Taxon_name, Percent)
+
+# Remove row names and set 'Sample' as a separate column
+# wide_data <- data.frame(Sample = rownames(wide_data), wide_data)
+
+# Replace NAs with 0
+wide_data[is.na(wide_data)] <- 0
+
+# Extract 'Sample' as row names
+rownames(wide_data) <- wide_data$Sample
+wide_data <- wide_data[, -1]
+# wide_data$Sample.1 <- NULL
+
+# Beta
+dist_matrix <- vegdist(wide_data, method = "bray")
+print(dist_matrix)
+# write.table(dist_matrix, file = "bray_curtis_matrix.csv", quote = FALSE)
+
+# PCoA -- Multidimensional scaling (MDS) is a means of visualizing the level of similarity of individual cases of a dataset.
+pcoa_result <- cmdscale(dist_matrix)  #  is similar in spirit to PCA but it takes a dissimilarity as input! A dissimilarity matrix shows the distance between every possible pair of objects.
+
+# color by sample
+pcoa_result <- as.data.frame(pcoa_result)
+pcoa_result$Sample <- rownames(pcoa_result)
+data_pcoa <- metadata[, c(1,2,6)]
+pcoa <- merge(pcoa_result, data_pcoa, by = c("Sample"), all.x = TRUE)
+pcoa$Day <- factor(pcoa$Day) ###########################################################
+pcoa$Day[pcoa$Day == "55"] <- "49"
+
+ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+  geom_point(aes(col = Day, shape = Group)) + 
+  labs(title = "PCoA Plot - Days", x = "PC1", y = "PC2", color = "Extraction Day") +
+  scale_color_manual(name = "Day", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+  theme_classic() 
+  # stat_ellipse(aes(col = Day))
+
+```
+# USING ADJUSTED PERCENT
+```{r}
+# # IN ALL THE DATA -- BETWEEN SAMPLES
+# data_alpha <- data[, c(1, 15, 17)]
+# 
+# # Aggregate the values (summing counts for duplicate combinations --> I lose some samples due to this)
+# aggregated_data <- aggregate(adjusted_percent ~ Sample + Taxon_name, data = data_alpha, sum)
+# 
+# # Pivot the data to wide format
+# wide_data <- spread(aggregated_data, Taxon_name, adjusted_percent)
+# 
+# # Remove row names and set 'Sample' as a separate column
+# # wide_data <- data.frame(Sample = rownames(wide_data), wide_data)
+# 
+# # Replace NAs with 0
+# wide_data[is.na(wide_data)] <- 0
+# 
+# # Extract 'Sample' as row names
+# rownames(wide_data) <- wide_data$Sample
+# wide_data <- wide_data[, -1]
+# # wide_data$Sample.1 <- NULL
+# 
+# # Beta
+# dist_matrix <- vegdist(wide_data, method = "bray")
+# print(dist_matrix)
+# # write.table(dist_matrix, file = "bray_curtis_matrix.csv", quote = FALSE)
+# 
+# # PCoA -- Multidimensional scaling (MDS) is a means of visualizing the level of similarity of individual cases of a dataset.
+# pcoa_result <- cmdscale(dist_matrix)  #  is similar in spirit to PCA but it takes a dissimilarity as input! A dissimilarity matrix shows the distance between every possible pair of objects.
+# 
+# # color by sample
+# pcoa_result <- as.data.frame(pcoa_result)
+# pcoa_result$Sample <- rownames(pcoa_result)
+# data_pcoa <- metadata[, c(1,2,6)]
+# pcoa <- merge(pcoa_result, data_pcoa, by = c("Sample"), all.x = TRUE)
+# pcoa$Day <- factor(pcoa$Day) ###########################################################
+# pcoa$Day[pcoa$Day == "55"] <- "49"
+# 
+# ggplot(data = pcoa, aes(x = pcoa[, 2], y = pcoa[, 3])) +
+#   geom_point(aes(col = Day, shape = Group)) + 
+#   labs(title = "PCoA Plot - Days", x = "PC1", y = "PC2", color = "Extraction Day") +
+#   scale_color_manual(name = "Day", values = c("blue", "red"),  labels = c("49", "21")) + # values = color_vector,
+#   theme_classic() 
+#   # stat_ellipse(aes(col = Day))
+# 
+# pcoa_day21 <- pcoa %>%
+#   filter(Day %in% "21")
+# ggplot(data = pcoa_day21, aes(x = pcoa_day21[, 2], y = pcoa_day21[, 3], col = Group)) +
+#   geom_point(aes(col = Group)) + 
+#   labs(title = "PCoA Plot - Day 21", x = "PC1", y = "PC2", color = "Group") +
+#   scale_color_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+#   scale_fill_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+#   theme_classic() + 
+#   stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1) # Instead of 
+# 
+# pcoa_day49 <- pcoa %>%
+#   filter(Day %in% "49")
+# ggplot(data = pcoa_day49, aes(x = pcoa_day49[, 2], y = pcoa_day49[, 3], col = Group)) +
+#   geom_point(aes(col = Group)) + 
+#   labs(title = "PCoA Plot - Day 49", x = "PC1", y = "PC2", color = "Group") +
+#   scale_color_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+#   scale_fill_manual(name = "Group", values = c("blue", "green", "red", "purple", "orange")) + # values = color_vector,
+#   theme_classic() + 
+#   stat_ellipse(geom = "polygon", aes(fill = Group), alpha = 0.1) # if I remove the fill from aes(), disappear from the legend --> I want this bit filling by colour to
+
+```
+```{r}
+plot_viral_taxa_distribution <- function(data, ranks, variable) {
+  # Filter rows based on specific taxonomic ranks
+  data_filtered <- data %>%
+    filter(Rank %in% ranks)
+
+  # Create a dynamic label based on the variable
+  y_label <- ifelse(variable == "Count", "Percent")
+
+  # Barplot of Viral Taxa Distribution per Group
+  ggplot(data_filtered, aes(x = Group, y = !!sym(variable), fill = Taxon_name)) +
+    geom_bar(position = "stack", stat = "identity") +
+    labs(x = 'Group', y = y_label, title = paste('Viral Taxa Distribution (' ,ranks, ') per Group')) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+taxonomic_ranks <- c("C")# c("O", "F")
+plot_variable <- "Count"  # Change to "Percent" if needed
+taxa_per_group <- plot_viral_taxa_distribution(data, taxonomic_ranks, plot_variable)
+taxa_per_group
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/Virus/Taxa_per_Group_Virus.png", taxa_per_group, height = 6, width = 10)
+```
+
+
+EXAMPLE WITH ANOTHER DATASET
+```{r}
+# Create an example abundance table
+taxa_names <- c("Taxon1", "Taxon2", "Taxon3", "Taxon4")
+sample_names <- paste("Sample", 1:10, sep="")
+abundance_table <- matrix(data = round(matrix(rpois(40, lambda = 10), ncol = 4), digits = 0), ncol = 4)
+
+# Display the abundance table
+print("Abundance Table:")
+print(abundance_table)
+
+# Beta diversity analysis using vegan package (Bray-Curtis dissimilarity in this case)
+beta_diversity <- vegdist(abundance_table, method = "bray")
+
+# Perform Non-metric Multidimensional Scaling (NMDS)
+pcoa <- pco(beta_diversity)
+bray_curtis_pcoa_df <- data.frame(pcoa1 = pcoa$vectors[,1], 
+                                  pcoa2 = pcoa$vectors[,2])
+ggplot(data = bray_curtis_pcoa_df, aes(x=pcoa1, y=pcoa2)) +
+  geom_point() +
+  labs(x = "PC1",
+       y = "PC2", 
+       title = "Bray-Curtis PCoA") +
+  theme(title = element_text(size = 10))
+
+# Assuming you have a grouping variable named 'group'
+groups <- factor(c("Group1", "Group1", "Group1", "Group1", "Group1", "Group2", "Group2", "Group2", "Group2", "Group2"))
+
+# Permanova
+permanova_result <- adonis(beta_diversity ~ groups, permutations = 999)
+
+# Display the Permanova results
+print("Permanova Results:")
+print(permanova_result)
+
+########################
+# Assuming your data is stored in a data frame named 'my_data'
+my_data <- data.frame(
+  V1 = c(1, 2, 3, 4, 5),
+  V2 = c(17, 12, 15, 10, 12),
+  V3 = c(9, 9, 7, 9, 11),
+  V4 = c(8, 13, 15, 7, 8)
+)
+
+# Load the vegan package
+library(vegan)
+
+# Transpose the data frame because vegan expects samples in rows and species in columns
+my_data_t <- t(my_data)
+
+# Calculate Bray-Curtis dissimilarity matrix
+bc_matrix <- vegdist(my_data_t, method = "bray")
+
+# Print the matrix
+print(bc_matrix)
+```
