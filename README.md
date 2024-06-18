@@ -1,4 +1,4 @@
-## Final Degree Project: Unravelling the Nasal Microbiome of Piglets Through Whole Genome Metagenomics Sequencing
+# Final Degree Project: Unravelling the Nasal Microbiome of Piglets Through Whole Genome Metagenomics Sequencing
 
 Welcome to the repository for my final degree project in metagenomics. This project aims to analyze microbiome communities using various bioinformatics tools and pipelines. Here you will find scripts and workflows used in the analysis, organized by different aspects of the project.
 
