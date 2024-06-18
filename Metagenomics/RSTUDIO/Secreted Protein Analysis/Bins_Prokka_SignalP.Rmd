@@ -1,0 +1,1101 @@
+---
+title: "SIGNALP"
+author: "Oriol Castellano"
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(readr)
+library(ComplexHeatmap)
+library(tidyr)
+library(vegan)
+library(ggplot2)
+# install.packages("d3heatmap")
+# library("d3heatmap")
+
+metadata <- unique(read.csv("metadata.csv"))
+metadata$Day[metadata$Day == 55] <- 49
+
+```
+# BIN ABUNDANCES (NOT SIGNALP)
+```{r}
+bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+colnames(bin_abundances) <- gsub("D", "_D", colnames(bin_abundances))
+numeric_data <- as.matrix(bin_abundances)
+heatmap(numeric_data)
+
+
+# Reorder columns based on "D21" and "D49"
+desired_order <- c(grep("D21", colnames(bin_abundances)), grep("D49", colnames(bin_abundances)))
+ordered_data <- bin_abundances[, desired_order]
+ordered_data <- as.matrix(ordered_data)
+heatmap(ordered_data)
+```
+
+```{r}
+# Extract sample names from bin abundances data
+sample_names <- rownames(bin_abundances)
+
+# Plot heatmap of bin abundances
+heatmap_data <- as.matrix(bin_abundances)
+
+# Convert the 'Group' column in metadata to character type
+metadata$Group <- as.character(metadata$Group)
+# Convert group names to unique color names
+group_colors <- rainbow(length(unique(metadata$Group)))
+
+# Map group names to corresponding colors
+sample_colors <- group_colors[as.numeric(factor(metadata$Group))]
+
+# Create the heatmap
+heatmap(heatmap_data, 
+        Colv = NA,               # To avoid clustering columns
+        Rowv = NA,               # To avoid clustering rows
+        ColSideColors = sample_colors,  # Color by group
+        labRow = sample_names,   # Sample names as row labels
+        main = "Heatmap of Bin Abundances",
+        scale = "none")          # No scaling
+
+```
+```{r}
+bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+colnames(bin_abundances) <- gsub("D", "_D", colnames(bin_abundances))
+
+bin_abundances <- as.data.frame(t(bin_abundances))
+bin_abundances$Sample <- rownames(bin_abundances)
+metadata2 <- metadata[, c(1,2)]
+merged_data <- merge(bin_abundances, metadata2, by = "Sample", all.x = TRUE)
+colnames(merged_data) <- merged_data$Sample
+# Load required libraries
+library(gplots)
+
+# Assuming bin_abundances now includes the "Group" column
+# Create heatmap data
+heatmap_data <- as.matrix(bin_abundances[, -1])  # Exclude the first column (Group) for heatmap
+heatmap_data <- as.matrix(apply(heatmap_data, 2, as.numeric))
+
+# Extract unique groups from metadata
+unique_groups <- unique(metadata$Group)
+
+# Define colors for each unique group
+group_colors <- rainbow(length(unique_groups))
+
+# Map colors to groups
+names(group_colors) <- unique_groups
+
+ncol_heatmap_data <- ncol(heatmap_data)
+group_colors <- rep(group_colors, length.out = ncol_heatmap_data)
+
+# Create the heatmap
+# heatmap(heatmap_data,
+# Colv = NA,                    # No clustering of columns
+# Rowv = NA,                    # No clustering of rows
+# ColSideColors = group_colors,# Color by group
+# labCol = "",                  # No column labels
+# labRow = sample_names,        # Sample names as row labels
+# main = "Heatmap of Bin Abundances",
+# scale = "none")               # No scaling
+
+```
+
+```{r}
+library(ggplot2)
+
+# Convert bin abundances to long format
+bin_abundances_long <- tidyr::pivot_longer(bin_abundances, 
+                                           cols = -Sample, 
+                                           names_to = "Bins", 
+                                           values_to = "Abundance")
+
+metadatagroup <- metadata[, c(1,2)]
+bin_abundances_long <- merge(bin_abundances_long, metadatagroup, by = "Sample", all.x = TRUE)
+
+# Plot heatmap
+ggplot(bin_abundances_long, aes(x = Sample, y = Bins, fill = Abundance)) +
+  geom_tile() +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  facet_grid(. ~ Group, scales = 'free_x') # Facet grid by 'Group'
+  # labs(title = "Heatmap of Bin Abundances", x = "Sample", y = "Sample")
+```
+
+
+```{r}
+metadataday <- metadata[, c(1,6)]
+bin_abundances_long <- merge(bin_abundances_long, metadataday, by = "Sample", all.x = TRUE)
+ggplot(bin_abundances_long, aes(x = Sample, y = Bins, fill = Abundance)) +
+  geom_tile() +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  facet_grid(. ~ Day, scales = 'free_x') # Facet grid by 'Group'
+  # labs(title = "Heatmap of Bin Abundances", x = "Sample", y = "Sample")
+```
+
+
+```{r}
+# Convert bin abundances to long format
+bin_abundances_long <- tidyr::pivot_longer(bin_abundances, 
+                                           cols = -Sample, 
+                                           names_to = "Bins", 
+                                           values_to = "Abundance")
+
+# Modify metadata to set Day 55 as Day 49
+metadata$Day[metadata$Day == 55] <- 49
+
+# Merge modified metadata with bin abundances
+metadata_subset <- metadata[, c("Sample", "Group", "Day")]
+bin_abundances_long <- merge(bin_abundances_long, metadata_subset, by = "Sample", all.x = TRUE)
+
+# Plot heatmap with facet grid by Group and Day
+ggplot(bin_abundances_long, aes(x = Sample, y = Bins, fill = Abundance)) +
+  geom_tile() +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  facet_grid(~ Day + Group, scales = 'free_x') +  # Facet grid by 'Group' and 'Day'
+  labs(title = "Heatmap of Bin Abundances", x = "Sample", y = "Bins")
+
+ggplot(bin_abundances_long, aes(x = Sample, y = Bins, fill = Abundance)) +
+  geom_tile() +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  facet_grid(Group ~ Day, scales = 'free') +  # Facet grid by 'Group' and 'Day'
+  labs(title = "Heatmap of Bin Abundances", x = "Sample", y = "Bins") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+library(ggh4x)
+# Plot heatmap with facet wrap
+ggplot(bin_abundances_long, aes(x = Sample, y = Bins, fill = Abundance)) +
+  geom_tile() +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  facet_nested(~ Group + Day, scales = "free_x") +  # Facet wrap by combined Group and Day
+  labs(title = "Heatmap of Bin Abundances", x = "Sample", y = "Bins") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(ggdendro)
+
+# Load bin abundance data
+bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+colnames(bin_abundances) <- gsub("D", "_D", colnames(bin_abundances))
+
+# Transform the bin abundance data
+bin_abundances <- as.data.frame(t(bin_abundances))
+bin_abundances$Sample <- rownames(bin_abundances)
+
+# Load metadata
+metadata <- read.csv("metadata.csv", header = TRUE)
+metadata <- unique(metadata)
+
+# Modify metadata to set Day 55 as Day 49
+metadata$Day[metadata$Day == 55] <- 49
+
+# Keep only the Group and Day columns
+metadata_subset <- metadata[, c("Sample", "Group", "Day")]
+
+# Merge bin abundances with metadata
+bin_abundances_long <- tidyr::pivot_longer(bin_abundances, 
+                                           cols = -Sample, 
+                                           names_to = "Bins", 
+                                           values_to = "Abundance")
+
+# Merge the transformed bin abundance data with metadata
+bin_abundances_long <- merge(bin_abundances_long, metadata_subset, by = "Sample", all.x = TRUE)
+
+# Filter out rows where Abundance is zero
+bin_abundances_long <- bin_abundances_long %>% filter(Abundance > 0)
+
+# Combine Group and Day into a single factor for facetting
+bin_abundances_long$Group_Day <- with(bin_abundances_long, paste(Group, Day, sep = "_D"))
+
+
+# # Create a dendrogram of the relationship of the bins
+# dend <- bin_abundances_long %>%
+#   select(-Sample, -Abundance, -Group, -Day) %>%
+#   t() %>%
+#   dist() %>%
+#   hclust() %>%
+#   as.dendrogram()
+
+# Plot heatmap with facet wrap and dendrogram
+# ggplot(bin_abundances_long, aes(x = Sample, y = Bins, fill = Abundance)) +
+#   geom_tile() +
+#   scale_fill_gradient(low = "blue", high = "red") +
+#   theme_minimal() +
+#   facet_nested(~ Group + Day, scales = "free_x") +  # Facet wrap by combined Group and Day
+#   labs(title = "Heatmap of Bin Abundances", x = "Sample", y = "Bins") +
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+#   geom_dendrogram(data = bin_abundances_long, aes(x = -0.5, y = Bins, fill = Group_Day), 
+#                   dendrogram = dend, orientation = "left", color = "black")
+
+```
+
+PERMANOVA OR KRUSKAL
+```{r}
+bin_abundances_wide_group <- bin_abundances_long %>%
+  group_by(Bins, Group) %>%
+  summarise(Abundance = sum(Abundance, na.rm = TRUE)) %>%
+  pivot_wider(names_from = Group, values_from = Abundance)
+bin_abundances_wide_group[is.na(bin_abundances_wide_group)] <- 0
+
+rownames(bin_abundances_wide_group) <- bin_abundances_wide_group$Bins
+# bin_abundances_wide_group <- bin_abundances_wide_group[,-1]
+# groups <- colnames(bin_abundances_wide_group)
+
+bin_abundances_wide_group <- t(bin_abundances_wide_group)
+# colnames(bin_abundances_wide_group) <- bin_abundances_wide_group[1,]
+# bin_abundances_wide_group <- bin_abundances_wide_group[-which(names(bin_abundances_wide_group) == "Bins"),]
+bin_abundances_wide_group <- bin_abundances_wide_group[-1,]
+bin_abundances_wide_group <- cbind(groups, bin_abundances_wide_group)
+
+bin_abundances_wide_group2 <- bin_abundances_wide_group[, -1]
+# bin_abundances_wide_group2$Group <- rownames(bin_abundances_wide_group2)
+# colnames(bin_abundances_wide_group2) <- bin_abundances_wide_group$Bins
+
+bin_abundances_wide_group2 <- apply(bin_abundances_wide_group2, 2, as.numeric)
+bin_abundances_wide_group <- as.data.frame(bin_abundances_wide_group)
+
+bray_curtis_bin_group <- vegdist(bin_abundances_wide_group2, method = "bray")
+
+# Perform PERMANOVA ***************************************************** TO MAKE IT RUN, NEED TO UNCOMMENT PREVIOUS COMMANDS
+# permanova_result <- adonis2(bray_curtis_bin_group ~ groups, data = bin_abundances_wide_group)
+# permanova_result
+
+
+# kr <- adonis2(bin_abundances_long$Abundance ~ bin_abundances_long$Group)
+# kr # DIFFERENCES BETWEEN GROUPS
+# 
+# kr <- kruskal.test(bin_abundances_long$Abundance ~ bin_abundances_long$Bins)
+# kr # DIFFERENCES BETWEEN BINS
+# 
+# kr <- kruskal.test(bin_abundances_long$Abundance ~ bin_abundances_long$Day)
+# kr # DIFFERENCES BETWEEN DAY
+
+```
+```{r}
+# kr <- kruskal.test(bin_abundances_long$Abundance ~ bin_abundances_long$Group)
+# kr # DIFFERENCES BETWEEN GROUPS
+# 
+# kr <- kruskal.test(bin_abundances_long$Abundance ~ bin_abundances_long$Bins)
+# kr # DIFFERENCES BETWEEN BINS
+# 
+# kr <- kruskal.test(bin_abundances_long$Abundance ~ bin_abundances_long$Day)
+# kr # DIFFERENCES BETWEEN DAY
+
+```
+
+```{r}
+bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+# Sum all bin abundances
+bin_abundances$sum <- rowSums(bin_abundances)
+bin_abundances$bin <- rownames(bin_abundances)
+bini <- bin_abundances[, c("sum", "bin")]
+# Sort the data frame by sum in descending order
+bini <- bini[order(bini$sum, decreasing = TRUE),]
+bini$bin <- gsub("bin", "MAG", bini$bin)
+
+# Plot
+b1 <- ggplot(bini, aes(x = reorder(bin, -sum), y = sum)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(
+    # title = "Total Abundance of Bins", 
+       x = "Bins", y = "Total Abundance") +
+    theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7)) 
+b1
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/Total_Abundances_MAGs.png", b1, height = 6, width = 10)
+```
+
+
+
+
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+# SECRETOME GENERAL
+FOR SAMPLES
+compare this with the ABUNDANCE OF THE bins among Samples and Groups
+```{r}
+metadata <- unique(read.csv("metadata.csv"))
+metadata$Day[metadata$Day == 55] <- 49
+
+bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+colnames(bin_abundances) <- gsub("D", "_D", colnames(bin_abundances))
+# Set the directory where the files are located
+base_dir <- "SignalP/All_Samples/"
+
+# Get the list of files in the directory
+file_list <- list.files(path = base_dir, full.names = TRUE)
+
+# Create an empty list to store data frames
+data_list <- list()
+
+# Loop over each file and read its content
+for (file in file_list) {
+  # Read the data from the file, skipping the first two columns
+  data <- read.delim2(file, skip = 2, sep= "\t", header = FALSE)
+  
+  # Add a column with the file name
+  data$FileName <- basename(file)
+  
+  # Store the data frame in the list
+  data_list[[file]] <- data
+}
+
+# Combine all data frames into a single data frame
+combined_data <- do.call(rbind, data_list)
+
+# Rename the headers of the data frame
+# ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+names(combined_data) <- c("ID", "Prediction", "Other", "SP", "LIPO", "TAT", "TATLIPO", "PILIN", "CS_Position", "FileName")
+
+# Split the ID column into ID and Protein columns
+combined_data <- separate(combined_data, ID, into = c("ID", "Protein"), sep = " ", extra = "merge")
+
+# Extract the sample information from the FileName column
+combined_data <- combined_data %>%
+  mutate(Sample = sub("^(.*?)_.*", "\\1", FileName))
+
+# Edit sample name
+combined_data$Sample <- gsub("^(.*?)D", "\\1_D", combined_data$Sample)
+
+combined_data <- combined_data %>%
+  filter(!is.na(Protein)) %>%  # Assuming "Protein" column contains predicted proteins
+  filter(Protein != "hypothetical protein") %>% # Exclude "hypothetical protein" 
+  filter(Protein != "putative protein") %>%   # Exclude "putative protein"
+  filter(Prediction != "OTHER")
+
+write.table(combined_data, "combined_data.tsv", row.names = FALSE)
+
+# Join metadata and combined_data using the sample
+merged_data <- left_join(combined_data, metadata, by = "Sample")
+```
+
+matrix where rows are samples, columns are proteins, and values are the counts of each protein.
+```{r}
+# Step 1: Filter the combined data to focus on proteins and their counts
+combined_data_filtered <- combined_data %>%
+  group_by(Sample, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Step 2: Create a wide format data frame (samples as rows, proteins as columns)
+protein_matrix <- combined_data_filtered %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+
+# Step 3: Remove the Sample column from the data frame and set it as row names
+protein_matrix <- as.data.frame(protein_matrix)
+rownames(protein_matrix) <- protein_matrix$Sample
+protein_matrix <- protein_matrix[, -1]
+
+# # Step 3: Extract sample metadata for grouping information
+# sample_metadata <- combined_data %>%
+#   select(Sample, Group, Day) %>%
+#   distinct()
+
+# Step 4: Calculate Bray-Curtis dissimilarity matrix
+bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+
+# Step 5: Perform PCoA
+pcoa_results <- cmdscale(bray_curtis_dist, eig = TRUE, k = 2) # k is the number of dimensions
+pcoa_data <- as.data.frame(pcoa_results$points)
+pcoa_data$Sample <- rownames(pcoa_data)
+
+# Merge PCoA results with sample metadata
+pcoa_data <- left_join(pcoa_data, metadata, by = "Sample")
+
+# Rename columns for clarity
+colnames(pcoa_data)[1:2] <- c("PCoA1", "PCoA2")
+
+# Step 6: Plot PCoA results using ggplot2
+pcoa_plot <- ggplot(pcoa_data, aes(x = PCoA1, y = PCoA2, color = Group, shape = as.factor(Day))) +
+  geom_point(size = 4) +
+  labs(title = "PCoA of Protein Predictions (Bray-Curtis Dissimilarity)",
+       x = "PCoA1",
+       y = "PCoA2",
+       color = "Group",
+       shape = "Day") +
+  theme_minimal()
+
+print(pcoa_plot)
+```
+
+Combine the bin abundance data with the PCoA data for visualization.
+```{r}
+# Step 1: Summarize bin abundances
+bin_abundances_summarized <- bin_abundances_long %>%
+  group_by(Sample, Group, Day, Bins) %>%
+  summarise(Total_Abundance = sum(Abundance)) %>%
+  ungroup()
+
+# Step 2: Merge bin abundance data with PCoA results
+pcoa_bin_data <- left_join(pcoa_data, bin_abundances_summarized, by = c("Sample", "Group", "Day"))
+
+# Step 3: Visualize combined data (example visualization)
+combined_plot1 <- ggplot(pcoa_bin_data, aes(x = PCoA1, y = PCoA2, shape = Group, color = as.factor(Day))) +
+  geom_point() +
+  labs( #title = "PCoA of Protein Predictions with Bin Abundances",
+       x = "PC1",
+       y = "PC2",
+       size = "Total Abundance",
+       shape = "Group",
+       color = "Day") +
+  theme_classic() + 
+  theme(# legend.position = "top", 
+  #       legend.direction = "horizontal", 
+        legend.title = element_text(face = "bold") # Make legend titles bold
+)
+combined_plot1
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/PCoA_BinAbundances_Samples_Days.png", combined_plot1, height = 6, width = 10)
+
+combined_plot2 <- ggplot(pcoa_bin_data, aes(x = PCoA1, y = PCoA2, size = Total_Abundance, color = Group, shape = as.factor(Day))) +
+  geom_point() +
+  labs(x = "PCoA1",
+       y = "PCoA2",
+       size = "Total Abundance",
+       color = "Group",
+       shape = "Day") +
+  theme_classic()
+combined_plot2
+
+combined_plot3 <- ggplot(pcoa_bin_data, aes(x = PCoA1, y = PCoA2, color = Total_Abundance, shape = Group, size = as.factor(Day))) +
+  geom_point() +
+  labs(x = "PCoA1",
+       y = "PCoA2",
+       color = "Total Abundance",
+       shape = "Group",
+       color = "Day") +
+  theme_classic()
+combined_plot3
+
+
+```
+Only differences in Days
+Permanova
+```{r}
+bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+# Perform PERMANOVA
+permanova_results_group <- adonis2(bray_curtis_dist ~ Group, data = metadata, permutations = 999)
+print(permanova_results_group)
+
+permanova_results_day <- adonis2(bray_curtis_dist ~ Day, data = metadata, permutations = 999)
+print(permanova_results_day) # 0.024 --> SIGNIFICANT DIFFERENCES secreted proteins between days
+```
+
+
+# Finally analyze the top 10 most abundant proteins and see if there are differences among Groups
+```{r}
+# Calculate frequency of each protein in each bin
+predicted_proteins_frequency <- merged_data %>%
+  group_by(Group, Sample, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Identify the top 10 most abundant proteins for each bin
+top_proteins <- predicted_proteins_frequency %>%
+  arrange(Group, desc(Frequency)) %>%
+  group_by(Group) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+# Visualization
+# ggplot(top_proteins, aes(x = Group, y = Protein, fill = Frequency)) +
+#   geom_bar(stat = "identity", position = position_dodge()) +
+#   facet_wrap(~ Protein, scales = "free_y") +
+#   labs(title = "Distribution of Top 10 Most Abundant Proteins Across Groups",
+#        x = "Group",
+#        y = "Total Frequency") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Heatmap
+# Spread the data into a wide format for heatmap plotting
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Sample, values_from = Frequency, values_fill = list(Frequency = 0))
+# heatmap_data$fre
+# # Convert to matrix format for heatmap
+# heatmap_matrix <- as.matrix(heatmap_data %>% select(-heatmap_data$Protein))
+# rownames(heatmap_matrix) <- heatmap_data$Protein
+```
+Top10 Summary table showing the frequency of the top 10 proteins across different groups. I can see that the D49 has more frequency of these secreted proteins.
+
+```{r}
+# Calculate frequency of each protein in each group
+predicted_proteins_frequency <- merged_data %>%
+  group_by(Group, Sample, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Summarize the frequency across samples within each group
+predicted_proteins_group_frequency <- predicted_proteins_frequency %>%
+  group_by(Group, Protein) %>%
+  summarise(Total_Frequency = sum(Frequency)) %>%
+  ungroup()
+
+# Identify the top 10 most abundant proteins for each group
+top_proteins <- predicted_proteins_group_frequency %>%
+  arrange(Group, desc(Total_Frequency)) %>%
+  group_by(Group) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+# Reshape the data for ggplot2
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Group, values_from = Total_Frequency, values_fill = list(Total_Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+# 
+# desired_order <- c("TS-IP", "NTS-IP", "TS-NTP", "NTS-TP", "NTS-NTP")
+# # Convert the 'Group' variable to a factor with the custom order, just to change the order in the boxplot
+heatmap_data$Group <- factor(heatmap_data$Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP"))
+
+# Create heatmap using ggplot2
+top10_all <- ggplot(heatmap_data, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "Group", y = "Protein", fill = "Frequency", title = "Heatmap of Most Abundant Proteins by Group") +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+  # facet_grid(Group ~ .)
+top10_all
+ggsave("top10_all.png", top10_all)
+```
+
+
+```{r}
+# Filter the combined data for Day all samples
+day_all_data <- merged_data
+
+# Step 1: Identify the Top 10 Most Abundant Proteins for Each Group in Day _all
+predicted_proteins_frequency_day_all <- day_all_data %>%
+  group_by(Sample, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+top_proteins_day_all <- predicted_proteins_frequency_day_all %>%
+  arrange(Sample, desc(Frequency)) %>%
+  group_by(Sample) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+
+# Step 2: Summarize the Frequency of These Proteins Across Groups
+top_proteins_data_day_all <- inner_join(day_all_data, top_proteins_day_all, by = c("Sample", "Protein"))
+
+protein_group_summary_day_all <- top_proteins_data_day_all %>%
+  group_by(Group, Protein) %>%
+  summarise(Total_Frequency = n()) %>%
+  ungroup()
+
+# Visualization
+# Reshape the data for ggplot2
+heatmap_data_all <- protein_group_summary_day_all %>%
+  pivot_wider(names_from = Group, values_from = Total_Frequency, values_fill = list(Total_Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+heatmap_data_all$Group <- factor(heatmap_data_all$Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP"))
+
+# Create heatmap using ggplot2
+top10_all <- ggplot(heatmap_data_all, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x = "Group", y = "Protein", fill = "Frequency" 
+       # title = "Heatmap of Most Abundant Proteins by Group"
+       ) +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+top10_all
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/top10_all.png", top10_all, width = 10, height = 6)
+
+# Prepare data for PERMANOVA
+stat_data_all <- predicted_proteins_frequency_day_all 
+# %>%
+#   filter(Protein %in% top_proteins_day_all$Protein) %>%
+#   select(Sample, Protein, Frequency)
+
+# Convert to wide format
+permanova_data_all <- stat_data_all %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+permanova_data_all <- vegdist(permanova_data_all[, -1], method = 'bray')
+
+d_all_metadata_perm <- metadata[, c(1, 2)]
+
+# Perform PERMANOVA
+permanova_result_all <- adonis2(permanova_data_all ~ d_all_metadata_perm$Group, data = permanova_data_all)
+permanova_result_all # 0.1
+```
+
+```{r}
+# # Remove columns with zero values in any group
+# heatmap_data_filtered <- heatmap_data %>%
+#   group_by(Protein) %>%
+#   filter(any(Frequency != 0)) %>%
+#   ungroup()
+# 
+# # Create the heatmap with facets by Group
+# top10_all <- ggplot(heatmap_data_filtered, aes(x = Group, y = Protein, fill = Frequency)) +
+#   geom_tile(color = "white") +
+#   scale_fill_gradient(low = "white", high = "blue") +
+#   labs(x = "Protein", y = "Group", fill = "Frequency", title = "Heatmap of Top 10 Most Abundant Proteins by Group") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#   facet_grid(col = vars(Group), scales = 'free_x') 
+# top10_all
+```
+
+
+Use ANOVA statistical tests to determine if there are significant differences among groups. The final result will display the proteins that have significant differences in abundance among the groups.
+```{r}
+# # Reshape the data for statistical testing
+# stat_data <- predicted_proteins_frequency %>%
+#   filter(Protein %in% top_proteins$Protein) %>%
+#   select(Group, Protein, Frequency)
+# 
+# # Perform Kruskal-Wallis test for each protein
+# kruskal_results <- stat_data %>%
+#   group_by(Protein) %>%
+#   summarise(p_value = kruskal.test(Frequency ~ Group)$p.value) %>%
+#   ungroup()
+# kruskal_results 
+# 
+# # Adjust p-values for multiple comparisons using the Bonferroni and Benjamini-Hochberg method
+# # kruskal_results <- kruskal_results %>%
+# #   mutate(adj_p_value = p.adjust(p_value, method = "bonferroni")) # or "BH"
+# # kruskal_results
+# # # Filter significant results
+# # significant_proteins <- kruskal_results %>%
+# #   filter(adj_p_value < 0.05)
+# # print(significant_proteins)
+# 
+# # Simple Kruskal-Wallis test
+# kr49 <- kruskal.test(stat_data$Group ~ stat_data$Frequency)
+# kr49 # 0.01321, STATISTICAL DIFFERENCES BETWEEN GROUPS
+```
+DAY 21
+```{r}
+# Filter the combined data for Day 21 samples
+day21_data <- merged_data %>%
+  filter(Day == 21)
+
+# Step 1: Identify the Top 10 Most Abundant Proteins for Each Group in Day 21
+predicted_proteins_frequency_day21 <- day21_data %>%
+  group_by(Sample, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+top_proteins_day21 <- predicted_proteins_frequency_day21 %>%
+  arrange(Sample, desc(Frequency)) %>%
+  group_by(Sample) %>%
+  slice_head(n = 3) %>%
+  ungroup()
+
+# Step 2: Summarize the Frequency of These Proteins Across Groups
+top_proteins_data_day21 <- inner_join(day21_data, top_proteins_day21, by = c("Sample", "Protein"))
+
+protein_group_summary_day21 <- top_proteins_data_day21 %>%
+  group_by(Group, Protein) %>%
+  summarise(Total_Frequency = n()) %>%
+  ungroup()
+
+# Visualization
+# Reshape the data for ggplot2
+heatmap_data21 <- protein_group_summary_day21 %>%
+  pivot_wider(names_from = Group, values_from = Total_Frequency, values_fill = list(Total_Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+heatmap_data21$Group <- factor(heatmap_data21$Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP"))
+
+# Create heatmap using ggplot2
+top10_d21 <- ggplot(heatmap_data21, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white", width = 0.9) +  # Adjust width to increase spacing
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(x = "Group", y = "Protein", fill = "Frequency" 
+       # title = "Heatmap of Most Abundant Proteins by Group at D21"
+       ) +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1)) 
+  # scale_x_discrete(expand = expansion(add = c(0.5, 0.5)))  # Adjust expand to add space between labels
+top10_d21
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/top10_d21.png", top10_d21, height = 6, width = 10)
+
+# Prepare data for PERMANOVA
+stat_data21 <- predicted_proteins_frequency_day21 
+# %>%
+#   filter(Protein %in% top_proteins_day21$Protein) %>%
+#   select(Sample, Protein, Frequency)
+
+# Convert to wide format
+permanova_data21 <- stat_data21 %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+permanova_data21 <- vegdist(permanova_data21[, -1], method = 'bray')
+
+d21_metadata_perm <- metadata[metadata[, 6] %in% c(21), c(1, 2)]
+
+# Perform PERMANOVA
+permanova_result21 <- adonis2(permanova_data21 ~ d21_metadata_perm$Group, data = permanova_data21)
+permanova_result21 # 0.212
+```
+
+DAY 49
+```{r}
+# Filter the combined data for Day 21 samples
+day49_data <- merged_data %>%
+  filter(Day == 49)
+
+# Step 1: Identify the Top 10 Most Abundant Proteins for Each Group in Day 49
+predicted_proteins_frequency_day49 <- day49_data %>%
+  group_by(Sample, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+top_proteins_day49 <- predicted_proteins_frequency_day49 %>%
+  arrange(Sample, desc(Frequency)) %>%
+  group_by(Sample) %>%
+  slice_head(n = 3) %>%
+  ungroup()
+
+# Step 2: Summarize the Frequency of These Proteins Across Groups
+top_proteins_data_day49 <- inner_join(day49_data, top_proteins_day49, by = c("Sample", "Protein"))
+
+protein_group_summary_day49 <- top_proteins_data_day49 %>%
+  group_by(Group, Protein) %>%
+  summarise(Total_Frequency = n()) %>%
+  ungroup()
+
+# Visualization
+# Reshape the data for ggplot2
+heatmap_data49 <- protein_group_summary_day49 %>%
+  pivot_wider(names_from = Group, values_from = Total_Frequency, values_fill = list(Total_Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+
+heatmap_data49$Group <- factor(heatmap_data49$Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP"))
+
+
+# Create heatmap using ggplot2
+top10_d49 <- ggplot(heatmap_data49, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(x = "Group", y = "Protein", fill = "Frequency"
+       # , title = "Heatmap of Most Abundant Proteins by Group at D49"
+       ) +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+top10_d49
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/top10_d49.png", top10_d49, width = 10, height = 6)
+
+# Prepare data for PERMANOVA
+stat_data49 <- predicted_proteins_frequency_day49 
+# %>%
+#   filter(Protein %in% top_proteins_day49$Protein) %>%
+#   select(Sample, Protein, Frequency)
+
+# Convert to wide format
+permanova_data49 <- stat_data49 %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+permanova_data49 <- vegdist(permanova_data49[, -1], method = 'bray')
+
+d49_metadata_perm <- metadata[metadata[, 6] %in% c(49,55), c(1, 2)]
+
+# Perform PERMANOVA
+permanova_result49 <- adonis2(permanova_data49 ~ d49_metadata_perm$Group, data = permanova_data49)
+permanova_result49 # 0.045
+```
+COMPARE TO THE DIFFERENTIAL SECRETED PROTEINS FROM COLONIZERS (OTHER FILE)
+```{r}
+protein_counts <- merged_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+group_counts <- protein_counts %>%
+  group_by(Protein) %>%
+  summarise(Num_Groups = n()) %>%
+  filter(Num_Groups == 1)
+
+unique_proteins <- semi_join(protein_counts, group_counts, by = "Protein")
+
+# Ensure correct order and execution of Step 4: Prepare Data for Heatmap
+unique_protein_data <- protein_counts %>%
+  filter(Protein %in% unique_proteins$Protein) %>%
+  pivot_wider(names_from = Group, values_from = Count, values_fill = 0) %>%
+  mutate(Protein = factor(Protein, levels = unique(Protein)))  # Ensure consistent protein order
+
+# Now prepare for plotting
+heatmap_data_unique <- unique_protein_data %>%
+  pivot_longer(cols = -Protein, names_to = "Group", values_to = "Frequency") %>%
+  mutate(Group = factor(Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP")))
+
+heatmap_unique <- ggplot(heatmap_data_unique, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x = "Proteins", y = "Group", fill = "Frequency"
+       # title = "Heatmap of Differentially Expressed Secreted Proteins"
+       ) +
+  # theme(axis.text.x = element_text(angle = 75, hjust = 1))
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
+print(heatmap_unique)
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/Total_differential_secreted_proteins_heatmap_ByGroups.png", heatmap_unique)
+```
+
+
+```{r}
+# ANALYZING ONLY CONTROL GROUP VS NTS_IP, avoiding antibiotic treatment 
+groups_of_interest <- c("NTS_NTP", "NTS_IP")
+protein_counts_filtered <- protein_counts %>%
+  filter(Group %in% groups_of_interest)
+
+heatmap_data_filtered <- protein_counts_filtered %>%
+  pivot_wider(names_from = Group, values_from = Count, values_fill = 0) %>%
+  mutate(Protein = factor(Protein, levels = unique(Protein)))  # Ensures consistent protein order
+
+# Filter rows where either NTS_IP or NTS_NTP is 0
+filtered_rows <- heatmap_data_filtered %>%
+  filter(NTS_IP == 0 | NTS_NTP == 0)
+# filtered_rows <- heatmap_data_filtered %>%
+#   filter(NTS_IP > 0 & NTS_NTP == 0)
+# # Filter rows where either NTS_IP or NTS_NTP is 0
+# filtered_rows <- filtered_rows %>%
+#   filter(NTS_IP > 2 | NTS_NTP > 2)
+
+# Now prepare for plotting
+heatmap_data_filtered_long <- filtered_rows %>%
+  pivot_longer(cols = c("NTS_NTP", "NTS_IP"), names_to = "Group", values_to = "Frequency") %>%
+  mutate(Group = factor(Group, levels = c("NTS_NTP", "NTS_IP")))
+
+heatmap_filtered <- ggplot(heatmap_data_filtered_long, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "Proteins", y = "Group", fill = "Frequency"
+       # , title = "Secreted Proteins in NTS_IP, not secreted in NTS_NTP (control)"
+       ) +
+  # theme(axis.text.x = element_text(angle = 75, hjust = 1))
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
+print(heatmap_filtered)
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/Total_differential_secreted_proteins_NTS_NTP_vs_NTS_IP_heatmap.svg", heatmap_filtered,width = 10, height = 6)
+
+write.csv(filtered_rows, "SignalP/Colonizers/filtered_proteins.csv")
+# Extract proteins of interest from heatmap_data_filtered
+proteins_of_interest <- heatmap_data_filtered$Protein
+
+proteins_with_zero_NTS_NTP <- heatmap_data_filtered %>%
+  filter(NTS_NTP == 0)
+
+
+```
+
+
+
+
+
+
+
+
+# ASSIGN BINS TO TAXONOMY
+```{r}
+bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+# Sum all bin abundances
+bin_abundances$sum <- rowSums(bin_abundances)
+bin_abundances$bin <- rownames(bin_abundances)
+total_bin_abundances <- bin_abundances[, c("sum", "bin")]
+total_bin_abundances$bin <- gsub("bin", "MAG", total_bin_abundances$bin)
+
+# Plot
+TAll_abund_bins <- ggplot(total_bin_abundances, aes(x = reorder(bin, -sum), y = sum)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Total Abundance of Bins", x = "Bins", y = "Total Abundance") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))  # Adjust size here
+TAll_abund_bins
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/Total_Abundances_MAGs.png", plot = TAll_abund_bins, width = 15, height = 6)
+
+filtered_total_bin_abundances <- total_bin_abundances[total_bin_abundances$sum > 97, ]
+```
+
+Load Taxonomy
+```{r}
+
+taxonomy_bin <- read.table("Bins/original_bin_taxonomy.tab", sep = "\t", header = F) # row.names = 1
+taxonomy_bin$V1 <- sub("\\.fa$", "", taxonomy_bin$V1)
+colnames(taxonomy_bin) <- c("bin", "taxonomy")
+```
+
+Bind both dataframes
+```{r}
+combined_data <- merge(filtered_total_bin_abundances, taxonomy_bin, by = "bin")
+
+# bin.104 and .83 are unclassified
+combined_data$taxonomy[combined_data$bin == "bin.104"] <- "Unclassified"
+combined_data$taxonomy[combined_data$bin == "bin.83"] <- "Unclassified"
+```
+
+Analyze 
+```{r}
+# Split the taxonomy into different levels
+taxonomy_levels <- taxonomy_bin %>%
+  separate(taxonomy, into = paste0("level", 1:7), sep = ";", fill = "right")
+
+# Count the occurrences of each taxonomy level
+taxonomy_counts <- taxonomy_levels %>%
+  gather(key = "level", value = "taxonomy", -bin) %>%
+  filter(!is.na(taxonomy) & taxonomy != "") %>%
+  group_by(taxonomy) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+top_taxonomies <- head(taxonomy_counts, 20)  # Adjust the number to show more/fewer top taxonomies
+ggplot(top_taxonomies, aes(x = reorder(taxonomy, count), y = count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "How Many bins are assigned to: ?   /// Top 20 Most Common Taxonomies (by Level) of the bins",
+       x = "Taxonomy",
+       y = "Count") +
+  theme_minimal()
+```
+```{r}
+get_top_level <- function(row) {
+  levels <- row[!is.na(row)]
+  if (length(levels) > 0) {
+    return(levels[1])
+  } else {
+    return(NA)
+  }
+}
+
+# Apply the function to each row to get the top level
+taxonomy_levels <- taxonomy_levels %>%
+  rowwise() %>%
+  mutate(top_level = get_top_level(c_across(level1:level7)))
+
+write.table(taxonomy_levels, "tax_levels_bins.tsv")
+```
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+# SECRETOME BINS (REASSEMBLED)
+BINS
+  - CHECK THE FILES AND COMPARE WITH BIN HEATMAP
+```{r}
+# Set the directory where the files are located
+base_dir <- "SignalP/Bins"
+
+# Get the list of files in the directory
+file_list <- list.files(path = base_dir, full.names = TRUE)
+
+# Create an empty list to store data frames
+data_list <- list()
+
+# Loop over each file and read its content
+for (file in file_list) {
+  # Read the data from the file, skipping the first two columns
+  data <- read.delim2(file, skip = 2, sep= "\t", header = FALSE)
+  
+  # Add a column with the file name
+  data$FileName <- basename(file)
+  
+  # Store the data frame in the list
+  data_list[[file]] <- data
+}
+
+# Combine all data frames into a single data frame
+combined_data <- do.call(rbind, data_list)
+
+# Rename the headers of the data frame
+# ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+names(combined_data) <- c("ID", "Prediction", "Other", "SP", "LIPO", "TAT", "TATLIPO", "PILIN", "CS_Position", "FileName")
+
+# Split the ID column into ID and Protein columns
+combined_data <- separate(combined_data, ID, into = c("ID", "Protein"), sep = " ", extra = "merge")
+
+# Extract bin name
+combined_data <- combined_data %>%
+  mutate(Bins = sub('.*bin\\.([0-9]+)\\..*', 'bin.\\1', FileName))
+
+
+```
+Column NAMES
+  ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+
+```{r}
+# summary(combined_data)
+```
+```{r}
+# Example: Create a histogram of SP values
+# library(ggplot2)
+# ggplot(combined_data, aes(x = SP)) + geom_histogram(binwidth = 0.1)
+
+```
+
+
+Based on the Predicted Proteins, I want to analyze if there's any distinct patterns along bins, and then compare this with the bin abundances for each sample, that can be ligated to some group (metadata) explanation
+Maybe I have to focus on Protein secreted for each bin
+
+For these, I have the bin_abundances for each sample, which each one is associated to a group and day in the "bin_abundances_long", so I can sum the abundances to get the bin_abundances for each group and day (for each group we have day 21 and day 49)
+
+    Focus on Predicted Proteins for Each Bin:
+    
+    Filter your dataset to focus only on the predicted proteins associated with each bin.
+    Identify Distinct Protein Patterns:
+    
+    Analyze the predicted proteins within each bin to identify any distinct patterns.
+    Aggregate Bin Abundances by Group and Day:
+    
+    Summarize the bin abundances for each group and day by aggregating the data based on the "Group" and "Day" columns in your "bin_abundances_long" dataset.
+    Comparison of Protein Patterns and Bin Abundances:
+    
+    Compare the identified protein patterns with the aggregated bin abundances for each group and day.
+    Statistical Analysis and Visualization:
+    
+    Perform statistical analysis and visualize the results.  
+
+Compare the number of different secreted proteins for each bin and then try to find a relationship
+```{r}
+combined_data <- combined_data %>%
+  filter(!is.na(Protein)) %>%  # Assuming "Protein" column contains predicted proteins
+  filter(Protein != "hypothetical protein") %>% # Exclude "hypothetical protein" 
+  filter(Protein != "putative protein") %>%   # Exclude "putative protein"
+  filter(Prediction != "OTHER")
+```
+
+## Then compare this with the ABUNDANCE OF THE bins among Samples and Groups, we can see that all the bins have more or less the same number of predicted proteins, unless the bin.20 and bin.105
+```{r}
+# Step 2: Group data by bins and count the number of unique predicted proteins
+predicted_proteins_diversity <- combined_data %>%
+  group_by(Bins) %>%
+  summarise(Protein_Diversity = n_distinct(Protein))
+
+# Step 3: Visualize the diversity of predicted proteins across bins
+ggplot(predicted_proteins_diversity, aes(x = Bins, y = Protein_Diversity)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Bins", y = "Protein Diversity", title = "Diversity of Predicted Proteins across Reassembled Bins") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Shannon diversity index, based on the frequency of predicted proteins within each bin.
+```{r}
+# Step 2: Group data by bins and protein, and count the frequency of each protein within each bin
+predicted_proteins_frequency <- combined_data %>%
+  group_by(Bins, Protein) %>%
+  summarise(Frequency = n())
+
+# Aggregate the values
+# aggregated_data <- aggregate(Frequency ~ Bins + Protein, data = predicted_proteins_frequency, sum)
+wide_data <- spread(predicted_proteins_frequency, Protein, Frequency)
+wide_data[is.na(wide_data)] <- 0
+
+# Extract 'Sample' as row names
+rownames(wide_data) <- wide_data$Bins
+wide_data2 <- wide_data[, -1]
+rownames(wide_data2) <- wide_data$Bins
+
+# Calculate alpha diversity (Shannon index) on WIDE DATA
+alpha_div_w <- diversity(wide_data2, index = "shannon")
+alpha_div_w <- as.data.frame(alpha_div_w)
+alpha_div_w$Bins <- rownames(wide_data2)
+
+kruskal1 <- kruskal.test(alpha_div_w$alpha_div_w ~ alpha_div_w$Bins) # Kruskal-Wallis
+print(kruskal1) # the p-value is 0.4691, which is greater than 0.05 == is no significant difference in Shannon diversity between BINS, based on the Kruskal-Wallis Test
+```
+
+

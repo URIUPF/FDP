@@ -1,0 +1,639 @@
+---
+title: "SignalP_Colonizers"
+author: "Oriol Castellano"
+date: "2024-01-1"
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(readr)
+library(ComplexHeatmap)
+library(tidyr)
+library(vegan)
+library(ggplot2)
+```
+
+```{r}
+metadata <- unique(read.csv("metadata_colo.csv"))
+metadata$Day[metadata$Day == 55] <- 49
+metadata_group_sample <- metadata[, c(1,2)]
+# 
+# bin_abundances <- read.table("Bins/bin_abundance_table.tab", sep = "\t", header = TRUE, row.names = 1)
+# colnames(bin_abundances) <- gsub("D", "_D", colnames(bin_abundances))
+# Set the directory where the files are located
+base_dir <- "ResultsAll"
+
+# Get the list of files in the directory
+file_list <- list.files(path = base_dir, full.names = TRUE)
+
+# Create an empty list to store data frames
+data_list <- list()
+
+# Loop over each file and read its content
+for (file in file_list) {
+  # Read the data from the file, skipping the first two columns
+  data <- read.delim2(file, skip = 2, sep= "\t", header = FALSE)
+  
+  # Add a column with the file name
+  data$FileName <- basename(file)
+  
+  # Store the data frame in the list
+  data_list[[file]] <- data
+}
+
+# Combine all data frames into a single data frame
+combined_data <- do.call(rbind, data_list)
+
+# Rename the headers of the data frame
+# ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+names(combined_data) <- c("ID", "Prediction", "Other", "SP", "LIPO", "TAT", "TATLIPO", "PILIN", "CS_Position", "FileName")
+
+# Split the ID column into ID and Protein columns
+combined_data <- separate(combined_data, ID, into = c("ID", "Protein"), sep = " ", extra = "merge")
+
+# Extract the sample information from the FileName column
+colonizers_combined_data <- combined_data %>%
+  mutate(Sample = sub("^(.*?)_.*", "\\1", FileName))
+
+# Edit sample name
+colonizers_combined_data$Sample <- gsub("^(.*?)D", "\\1_D", colonizers_combined_data$Sample)
+
+colonizers_combined_data <- colonizers_combined_data %>%
+  filter(!is.na(Protein)) %>%  # Assuming "Protein" column contains predicted proteins
+  filter(Protein != "hypothetical protein") %>% # Exclude "hypothetical protein" 
+  filter(Protein != "putative protein") %>%   # Exclude "putative protein"
+  filter(Prediction != "OTHER")
+
+write.table(colonizers_combined_data, "colonizers_combined_data.tsv", row.names = FALSE)
+
+# Join metadata and combined_data using the sample
+merged_data <- left_join(colonizers_combined_data, metadata_group_sample, by = "Sample")
+```
+
+```{r}
+# Step 1: Filter the combined data to focus on proteins and their counts
+colonizers_combined_data_filtered <- merged_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Step 2: Create a wide format data frame (Groups as rows, proteins as columns)
+protein_matrix <- colonizers_combined_data_filtered %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+
+# Step 3: Remove the Group column from the data frame and set it as row names
+protein_matrix <- as.data.frame(protein_matrix)
+rownames(protein_matrix) <- protein_matrix$Group
+protein_matrix <- protein_matrix[, -1]
+
+# # Step 3: Extract Group metadata for grouping information
+# Group_metadata <- colonizers_combined_data %>%
+#   select(Group, Group, Day) %>%
+#   distinct()
+
+# Step 4: Calculate Bray-Curtis dissimilarity matrix
+bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+
+# Step 5: Perform PCoA
+pcoa_results <- cmdscale(bray_curtis_dist, eig = TRUE, k = 2) # k is the number of dimensions
+pcoa_data <- as.data.frame(pcoa_results$points)
+pcoa_data$Group <- rownames(pcoa_data)
+
+# Merge PCoA results with Group metadata
+# pcoa_data <- left_join(pcoa_data, metadata, by = "Group")
+
+# Rename columns for clarity
+colnames(pcoa_data)[1:2] <- c("PCoA1", "PCoA2")
+
+# Step 6: Plot PCoA results using ggplot2
+pcoa_plot <- ggplot(pcoa_data, aes(x = PCoA1, y = PCoA2, color = Group)) +
+  geom_point(size = 4) +
+  labs(title = "PCoA of Protein Predictions (Bray-Curtis Dissimilarity)",
+       x = "PCoA1",
+       y = "PCoA2",
+       color = "Group",
+       shape = "Day") +
+  theme_minimal()
+
+print(pcoa_plot)
+```
+
+# PERMANOVA ALL
+```{r}
+# bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+# # Perform PERMANOVA
+# permanova_results_group <- adonis2(bray_curtis_dist ~ Group, data = protein_matrix, permutations = 999)
+# print(permanova_results_group)
+# 
+# permanova_results_day <- adonis2(bray_curtis_dist ~ Day, data = metadata, permutations = 999)
+# print(permanova_results_day) # 0.024 --> SIGNIFICANT DIFFERENCES secreted proteins between days
+```
+
+
+# Finally analyze the top 10 most abundant proteins and see if there are differences among Groups
+```{r}
+# Calculate frequency of each protein in each bin
+predicted_proteins_frequency <- merged_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Identify the top 10 most abundant proteins for each bin
+top_proteins <- predicted_proteins_frequency %>%
+  arrange(Group, desc(Frequency)) %>%
+  group_by(Group) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+# Visualization
+# ggplot(top_proteins, aes(x = Group, y = Protein, fill = Frequency)) +
+#   geom_bar(stat = "identity", position = position_dodge()) +
+#   facet_wrap(~ Protein, scales = "free_y") +
+#   labs(title = "Distribution of Top 10 Most Abundant Proteins Across Groups",
+#        x = "Group",
+#        y = "Total Frequency") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Heatmap
+# Spread the data into a wide format for heatmap plotting
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Group, values_from = Frequency, values_fill = list(Frequency = 0))
+# heatmap_data$fre
+# # Convert to matrix format for heatmap
+# heatmap_matrix <- as.matrix(heatmap_data %>% select(-heatmap_data$Protein))
+# rownames(heatmap_matrix) <- heatmap_data$Protein
+```
+Top10 Summary table showing the frequency of the top 10 proteins across different groups. I can see that the D49 has more frequency of these secreted proteins.
+
+```{r}
+# Calculate frequency of each protein in each Group
+predicted_proteins_frequency <- merged_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Summarize the frequency across Groups within each Group
+predicted_proteins_group_frequency <- predicted_proteins_frequency %>%
+  group_by(Group, Protein) %>%
+  summarise(Total_Frequency = sum(Frequency)) %>%
+  ungroup()
+
+# Identify the top 10 most abundant proteins for each group
+top_proteins <- predicted_proteins_group_frequency %>%
+  arrange(Group, desc(Total_Frequency)) %>%
+  group_by(Group) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+
+# Reshape the data for ggplot2
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Group, values_from = Total_Frequency, values_fill = list(Total_Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+
+heatmap_data$Group <- factor(heatmap_data$Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP", "glaesserella", "moraxella", "streptococcus", "rothia"))
+
+# Create heatmap using ggplot2
+colonizers_top10_all <- ggplot(heatmap_data, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "Group", y = "Protein", fill = "Frequency", 
+       # title = "Heatmap of Top 10 Most Abundant Secreted Proteins by COLONIZERS"
+       ) +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+colonizers_top10_all
+ggsave("colonizers_top10_all.png", colonizers_top10_all, height = 6, width = 10)
+
+
+
+
+# Prepare data for PERMANOVA
+stat_data <- predicted_proteins_frequency 
+
+permanova_data <- stat_data %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+
+permanova_data <- vegdist(permanova_data[, -1], method = 'bray')
+
+metadata_perm <- metadata[metadata[, 6] %in% c(21), c(1, 2)]
+
+# # Perform PERMANOVA
+# permanova_result <- adonis2(permanova_data ~ metadata_perm$Group, data = permanova_data)
+# permanova_result # 0.212
+```
+
+```{r}
+filtered_proteins <- read.csv("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/ANALYSIS/DATA/Metagenomics/Bins_Prokka_Signalp/SignalP/Colonizers/filtered_proteins.csv")
+
+metadata <- unique(read.csv("metadata_colo.csv"))
+metadata$Day[metadata$Day == 55] <- 49
+
+base_dir <- "Results_Colo//"
+
+# Get the list of files in the directory
+file_list <- list.files(path = base_dir, full.names = TRUE)
+
+# Create an empty list to store data frames
+data_list <- list()
+
+# Loop over each file and read its content
+for (file in file_list) {
+  # Read the data from the file, skipping the first two columns
+  data <- read.delim2(file, skip = 2, sep= "\t", header = FALSE)
+
+  # Add a column with the file name
+  data$FileName <- basename(file)
+
+  # Store the data frame in the list
+  data_list[[file]] <- data
+}
+
+# Combine all data frames into a single data frame
+colonizers_combined_data <- do.call(rbind, data_list)
+
+# Rename the headers of the data frame
+# ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+names(colonizers_combined_data) <- c("ID", "Prediction", "Other", "SP", "LIPO", "TAT", "TATLIPO", "PILIN", "CS_Position", "FileName")
+
+# Split the ID column into ID and Protein columns
+colonizers_combined_data <- separate(colonizers_combined_data, ID, into = c("ID", "Protein"), sep = " ", extra = "merge")
+
+# Extract the Group information from the FileName column
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Group = sub("^(.*?)_.*", "\\1", FileName))
+
+colonizers_combined_data <- colonizers_combined_data %>%
+  filter(!is.na(Protein)) %>%  # Assuming "Protein" column contains predicted proteins
+  filter(Protein != "hypothetical protein") %>% # Exclude "hypothetical protein"
+  filter(Protein != "putative protein") %>%   # Exclude "putative protein"
+  filter(Prediction != "OTHER")
+
+write.table(colonizers_combined_data, "colonizers_combined_data.tsv", row.names = FALSE)
+
+proteins_of_interest <- filtered_proteins$Protein
+
+# Filter other_table based on proteins_of_interest
+matched_proteins <- colonizers_combined_data %>%
+  filter(Protein %in% proteins_of_interest)
+
+
+# Calculate frequency of each protein in each Group
+predicted_proteins_frequency <- matched_proteins %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Summarize the frequency across Groups within each Group
+predicted_proteins_group_frequency <- predicted_proteins_frequency %>%
+  group_by(Group, Protein) %>%
+  summarise(Total_Frequency = sum(Frequency)) %>%
+  ungroup()
+
+# Identify the top 10 most abundant proteins for each group
+top_proteins <- predicted_proteins_group_frequency %>%
+  arrange(Group, desc(Total_Frequency)) %>%
+  group_by(Group) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+
+# Reshape the data for ggplot2
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Group, values_from = Total_Frequency, values_fill = list(Total_Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+
+heatmap_data$Group <- factor(heatmap_data$Group, levels = c("glaesserella", "moraxella", "streptococcus", "rothia"))
+
+# Create heatmap using ggplot2
+colonizers_diff <- ggplot(heatmap_data, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "Group", y = "Protein", fill = "Frequency",
+       title = "Heatmap of differential secreted proteins (of groups) by COLONIZERS"
+       ) +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+colonizers_diff
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/MAGs and Secretome/colonizers_differential_expressed_proteins_controlvsIP.png", colonizers_diff, height = 6, width = 10)
+
+unique(heatmap_data$Protein)
+```
+
+```{r}
+metadata <- unique(read.csv("metadata.csv"))
+metadata$Day[metadata$Day == 55] <- 49
+metadata$Day[metadata$Day == 55] <- 49
+metadata_group_sample <- metadata[, c(1,2)]
+
+base_dir <- "SampleResults/"
+
+# Get the list of files in the directory
+file_list <- list.files(path = base_dir, full.names = TRUE)
+
+# Create an empty list to store data frames
+data_list <- list()
+
+# Loop over each file and read its content
+for (file in file_list) {
+  # Read the data from the file, skipping the first two columns
+  data <- read.delim2(file, skip = 2, sep= "\t", header = FALSE)
+
+  # Add a column with the file name
+  data$FileName <- basename(file)
+
+  # Store the data frame in the list
+  data_list[[file]] <- data
+}
+
+# Combine all data frames into a single data frame
+colonizers_combined_data <- do.call(rbind, data_list)
+
+# Rename the headers of the data frame
+# ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+names(colonizers_combined_data) <- c("ID", "Prediction", "Other", "SP", "LIPO", "TAT", "TATLIPO", "PILIN", "CS_Position", "FileName")
+
+# Split the ID column into ID and Protein columns
+colonizers_combined_data <- separate(colonizers_combined_data, ID, into = c("ID", "Protein"), sep = " ", extra = "merge")
+
+# Extract the Group information from the FileName column
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Sample = sub("^(.*?)_.*", "\\1", FileName))
+
+colonizers_combined_data$Sample <- gsub("^(.*?)D", "\\1_D", colonizers_combined_data$Sample)
+
+
+colonizers_combined_data <- colonizers_combined_data %>%
+  filter(!is.na(Protein)) %>%  # Assuming "Protein" column contains predicted proteins
+  filter(Protein != "hypothetical protein") %>% # Exclude "hypothetical protein"
+  filter(Protein != "putative protein") %>%   # Exclude "putative protein"
+  filter(Prediction != "OTHER")
+
+write.table(colonizers_combined_data, "colonizers_combined_data.tsv", row.names = FALSE)
+
+merged_data <- left_join(colonizers_combined_data, metadata_group_sample, by = "Sample")
+
+```
+
+```{r}
+# Step 1: Filter the combined data to focus on proteins and their counts
+colonizers_combined_data_filtered <- merged_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Step 2: Create a wide format data frame (Groups as rows, proteins as columns)
+protein_matrix <- colonizers_combined_data_filtered %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+
+# Step 3: Remove the Group column from the data frame and set it as row names
+protein_matrix <- as.data.frame(protein_matrix)
+rownames(protein_matrix) <- protein_matrix$Group
+protein_matrix <- protein_matrix[, -1]
+
+# # Step 3: Extract Group metadata for grouping information
+# Group_metadata <- colonizers_combined_data %>%
+#   select(Group, Group, Day) %>%
+#   distinct()
+
+# Step 4: Calculate Bray-Curtis dissimilarity matrix
+bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+
+# Step 5: Perform PCoA
+pcoa_results <- cmdscale(bray_curtis_dist, eig = TRUE, k = 2) # k is the number of dimensions
+pcoa_data <- as.data.frame(pcoa_results$points)
+pcoa_data$Group <- rownames(pcoa_data)
+
+# Merge PCoA results with Group metadata
+# pcoa_data <- left_join(pcoa_data, metadata, by = "Group")
+
+# Rename columns for clarity
+colnames(pcoa_data)[1:2] <- c("PCoA1", "PCoA2")
+
+# Step 6: Plot PCoA results using ggplot2
+pcoa_plot <- ggplot(pcoa_data, aes(x = PCoA1, y = PCoA2, color = Group)) +
+  geom_point(size = 4) +
+  labs(title = "PCoA of Protein Predictions (Bray-Curtis Dissimilarity)",
+       x = "PCoA1",
+       y = "PCoA2",
+       color = "Group",
+       shape = "Day") +
+  theme_minimal()
+
+print(pcoa_plot)
+```
+
+# PERMANOVA ALL
+```{r}
+# bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+# # Perform PERMANOVA
+# permanova_results_group <- adonis2(bray_curtis_dist ~ Group, data = protein_matrix, permutations = 999)
+# print(permanova_results_group)
+# 
+# permanova_results_day <- adonis2(bray_curtis_dist ~ Day, data = metadata, permutations = 999)
+# print(permanova_results_day) # 0.024 --> SIGNIFICANT DIFFERENCES secreted proteins between days
+```
+
+
+```{r}
+metadata <- unique(read.csv("metadata.csv"))
+metadata$Day[metadata$Day == 55] <- 49
+metadata$Day[metadata$Day == 55] <- 49
+metadata_group_sample <- metadata[, c(1,2)]
+
+base_dir <- "Results_Colo/"
+
+# Get the list of files in the directory
+file_list <- list.files(path = base_dir, full.names = TRUE)
+
+# Create an empty list to store data frames
+data_list <- list()
+
+# Loop over each file and read its content
+for (file in file_list) {
+  # Read the data from the file, skipping the first two columns
+  data <- read.delim2(file, skip = 2, sep= "\t", header = FALSE)
+
+  # Add a column with the file name
+  data$FileName <- basename(file)
+
+  # Store the data frame in the list
+  data_list[[file]] <- data
+}
+
+# Combine all data frames into a single data frame
+colonizers_combined_data <- do.call(rbind, data_list)
+
+# Rename the headers of the data frame
+# ID	Prediction	OTHER	SP(Sec/SPI)	LIPO(Sec/SPII)	TAT(Tat/SPI)	TATLIPO(Tat/SPII)	PILIN(Sec/SPIII)	CS Position
+names(colonizers_combined_data) <- c("ID", "Prediction", "Other", "SP", "LIPO", "TAT", "TATLIPO", "PILIN", "CS_Position", "FileName")
+
+# Split the ID column into ID and Protein columns
+colonizers_combined_data <- separate(colonizers_combined_data, ID, into = c("ID", "Protein"), sep = " ", extra = "merge")
+
+# Extract the Group information from the FileName column
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Group = sub("^(.*?)_.*", "\\1", FileName))
+
+# colonizers_combined_data$Sample <- gsub("^(.*?)D", "\\1_D", colonizers_combined_data$Sample)
+
+colonizers_combined_data <- colonizers_combined_data %>%
+  filter(!is.na(Protein)) %>%  # Assuming "Protein" column contains predicted proteins
+  filter(Protein != "hypothetical protein") %>% # Exclude "hypothetical protein"
+  filter(Protein != "putative protein") %>%   # Exclude "putative protein"
+  filter(Prediction != "OTHER")
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Group = ifelse(Group == "glaesserella", "G. Suis", Group))
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Group = ifelse(Group == "moraxella", "G. pluranimalium", Group))
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Group = ifelse(Group == "streptococcus", "S. pluranimalium", Group))
+colonizers_combined_data <- colonizers_combined_data %>%
+  mutate(Group = ifelse(Group == "rothia", "R. nasimurium", Group))
+
+write.table(colonizers_combined_data, "colonizers_combined_data.tsv", row.names = FALSE)
+
+# merged_data <- left_join(colonizers_combined_data, metadata_group_sample, by = "Sample")
+
+```
+
+```{r}
+# Step 1: Filter the combined data to focus on proteins and their counts
+colonizers_combined_data_filtered <- colonizers_combined_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Step 2: Create a wide format data frame (Groups as rows, proteins as columns)
+protein_matrix <- colonizers_combined_data_filtered %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+
+# Step 3: Remove the Group column from the data frame and set it as row names
+protein_matrix <- as.data.frame(protein_matrix)
+rownames(protein_matrix) <- protein_matrix$Group
+protein_matrix <- protein_matrix[, -1]
+
+# # Step 3: Extract Group metadata for grouping information
+# Group_metadata <- colonizers_combined_data %>%
+#   select(Group, Group, Day) %>%
+#   distinct()
+
+# Step 4: Calculate Bray-Curtis dissimilarity matrix
+bray_curtis_dist <- vegdist(protein_matrix, method = "bray")
+
+# Step 5: Perform PCoA
+pcoa_results <- cmdscale(bray_curtis_dist, eig = TRUE, k = 2) # k is the number of dimensions
+pcoa_data <- as.data.frame(pcoa_results$points)
+pcoa_data$Group <- rownames(pcoa_data)
+
+# Merge PCoA results with Group metadata
+# pcoa_data <- left_join(pcoa_data, metadata, by = "Group")
+
+# Rename columns for clarity
+colnames(pcoa_data)[1:2] <- c("PCoA1", "PCoA2")
+
+# Step 6: Plot PCoA results using ggplot2
+pcoa_plot <- ggplot(pcoa_data, aes(x = PCoA1, y = PCoA2, color = Group)) +
+  geom_point(size = 4) +
+  labs(title = "PCoA of Protein Predictions (Bray-Curtis Dissimilarity)",
+       x = "PCoA1",
+       y = "PCoA2",
+       color = "Group",
+       shape = "Day") +
+  theme_minimal()
+
+print(pcoa_plot)
+```
+
+# Finally analyze the top 10 most abundant proteins and see if there are differences among Groups
+```{r}
+# Calculate frequency of each protein in each bin
+predicted_proteins_frequency <- colonizers_combined_data %>%
+  group_by(Group, Protein) %>%
+  summarise(Frequency = n()) %>%
+  ungroup()
+
+# Identify the top 10 most abundant proteins for each bin
+top_proteins <- predicted_proteins_frequency %>%
+  arrange(Group, desc(Frequency)) %>%
+  group_by(Group) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+# Visualization
+# ggplot(top_proteins, aes(x = Group, y = Protein, fill = Frequency)) +
+#   geom_bar(stat = "identity", position = position_dodge()) +
+#   facet_wrap(~ Protein, scales = "free_y") +
+#   labs(title = "Distribution of Top 10 Most Abundant Proteins Across Groups",
+#        x = "Group",
+#        y = "Total Frequency") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Heatmap
+# Spread the data into a wide format for heatmap plotting
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Group, values_from = Frequency, values_fill = list(Frequency = 0))
+# heatmap_data$fre
+# # Convert to matrix format for heatmap
+# heatmap_matrix <- as.matrix(heatmap_data %>% select(-heatmap_data$Protein))
+# rownames(heatmap_matrix) <- heatmap_data$Protein
+```
+Top10 Summary table showing the frequency of the top 10 proteins across different groups. I can see that the D49 has more frequency of these secreted proteins.
+
+```{r}
+# # Calculate frequency of each protein in each Group
+# predicted_proteins_frequency <- merged_data %>%
+#   group_by(Group, Protein) %>%
+#   summarise(Frequency = n()) %>%
+#   ungroup()
+# 
+# # Summarize the frequency across Groups within each Group
+# predicted_proteins_group_frequency <- predicted_proteins_frequency %>%
+#   group_by(Group, Protein) %>%
+#   summarise(Total_Frequency = sum(Frequency)) %>%
+#   ungroup()
+# 
+# # Identify the top 10 most abundant proteins for each group
+# top_proteins <- predicted_proteins_group_frequency %>%
+#   arrange(Group, desc(Total_Frequency)) %>%
+#   group_by(Group) %>%
+#   slice_head(n = 5) %>%
+#   ungroup()
+
+# Reshape the data for ggplot2
+heatmap_data <- top_proteins %>%
+  pivot_wider(names_from = Group, values_from = Frequency, values_fill = list(Frequency = 0)) %>%
+  pivot_longer(-Protein, names_to = "Group", values_to = "Frequency")
+
+# heatmap_data$Group <- factor(heatmap_data$Group, levels = c("TS_IP", "NTS_IP", "TS_NTP", "NTS_TP", "NTS_NTP", "glaesserella", "moraxella", "streptococcus", "rothia"))
+
+# Create heatmap using ggplot2
+colonizers_top10_all <- ggplot(heatmap_data, aes(x = Protein, y = Group, fill = Frequency)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "Group", y = "Protein", fill = "Frequency") +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1),
+        axis.text.y = element_text(face = "italic"))
+colonizers_top10_all
+ggsave("/home/uriii/Desktop/BIOINFORMATICS/INT_FDG/REPORT AND FDP/Figures/SuppMat/X_Secretome/colonizers_top10_all.png", colonizers_top10_all, height = 6, width = 10)
+
+
+
+
+# Prepare data for PERMANOVA
+stat_data <- predicted_proteins_frequency
+
+permanova_data <- stat_data %>%
+  pivot_wider(names_from = Protein, values_from = Frequency, values_fill = list(Frequency = 0))
+
+permanova_data <- vegdist(permanova_data[, -1], method = 'bray')
+
+metadata_perm <- metadata[metadata[, 6] %in% c(21), c(1, 2)]
+
+# # Perform PERMANOVA
+# permanova_result <- adonis2(permanova_data ~ metadata_perm$Group, data = permanova_data)
+# permanova_result # 0.212
+```
+
+look, to discuss the functuions that rothia, by the colonizers, is passing to the piglets
+also discuss if the mags are not profiled as rothia
