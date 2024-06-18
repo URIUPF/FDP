@@ -1,0 +1,26 @@
+#!/bin/bash
+#SBATCH -J logs/prokkaFINAL.batch
+#SBATCH -e logs/err.prokkaFINAL.batch
+#SBATCH -o logs/out.prokkaFINAL.batch
+#SBATCH -p std
+#SBATCH -n 1
+#SBATCH -c 24
+#SBATCH -t 10-00:00
+
+
+module load conda/3
+conda activate prokka
+
+samplesBatched="F6D21 F6D49 F112D21 F112D49 F123D21 F123D49 F129D21 F129D49 F259D21 F259D49 F334D21 F334D49 F338D21 F338D49 F351D21 F351D49 F358D21 F358D49 F508D21 F508D49 F509D21 F509D49 F516D21 F516D49 F554D21 F554D49 F629D21 F629D49 F753D21 F753D49 F842D21 F842D49 F861D21 F861D49 F889D21 F889D49 F2601D21 F2601D55 F2617D21 F2617D55 F2666D21 F2666D55 F2698D21 F2698D55 F2714D21 F2714D55 F75D21 F831D49"
+
+file_directory="/scratch/mblanco/baro/metagenomic/analysis/metaWRAP/ASSEMBLY/std"
+output_directory="/scratch/mblanco/baro/metagenomic/analysis/URI_4_gene_annotation_prokka/BacteriaFINAL"
+
+# Loop through each sample and run Prokka
+for item in $samplesBatched; do
+    directory="${output_directory}/${item}"
+    sc_directory="${file_directory}/${item}"
+    echo "Running Prokka in directory: ${sc_directory}"
+    prokka --outdir "${directory}/prokka_output" --prefix "${item}_prokka" "${sc_directory}/final_assembly.fasta" --cpus 24
+    echo "Prokka finished for directory: ${sc_directory}"
+done
